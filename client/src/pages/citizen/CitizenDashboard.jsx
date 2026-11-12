@@ -8,6 +8,8 @@ import StatusBadge from '../../components/common/StatusBadge';
 import EmptyState from '../../components/common/EmptyState';
 import Modal from '../../components/common/Modal';
 import Alert from '../../components/common/Alert';
+import LodgeComplaintModal from '../../components/complaints/LodgeComplaintModal';
+import ComplaintDetailsModal from '../../components/complaints/ComplaintDetailsModal';
 import {
   FileText,
   PlusCircle,
@@ -30,6 +32,12 @@ export default function CitizenDashboard() {
   const [dataError, setDataError] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [activeModalFeature, setActiveModalFeature] = useState('');
+  const [lodgeModalOpen, setLodgeModalOpen] = useState(false);
+  const [selectedComplaint, setSelectedComplaint] = useState(null);
+
+  const handleComplaintSubmitted = (newComplaint) => {
+    setComplaints((prev) => [newComplaint, ...prev]);
+  };
 
   const citizenName = profile?.full_name || user?.email?.split('@')[0] || 'Citizen';
   const constituency = profile?.constituency || 'Not provided';
@@ -171,7 +179,7 @@ export default function CitizenDashboard() {
       {/* 3. QUICK-ACTION CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <button
-          onClick={() => openPhaseNotice('Lodge New Civic Complaint')}
+          onClick={() => setLodgeModalOpen(true)}
           type="button"
           className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-blue-300 hover:shadow-md transition-all text-left flex items-start gap-4 group cursor-pointer"
         >
@@ -234,7 +242,7 @@ export default function CitizenDashboard() {
           </div>
 
           <button
-            onClick={() => openPhaseNotice('Lodge New Civic Complaint')}
+            onClick={() => setLodgeModalOpen(true)}
             type="button"
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-xs cursor-pointer self-start sm:self-auto"
           >
@@ -251,17 +259,25 @@ export default function CitizenDashboard() {
             title="No Complaints Submitted Yet"
             description="You have not reported any civic issues yet. When you submit a complaint, its lifecycle status, assigned department official, and resolution updates will appear here."
             actionLabel="Lodge a Civic Issue"
-            onAction={() => openPhaseNotice('Lodge New Civic Complaint')}
-            isFutureModule={true}
-            phase="Phase 2 Complaint Intake"
+            onAction={() => setLodgeModalOpen(true)}
           />
         ) : (
           <div className="divide-y divide-slate-100">
             {complaints.map((item) => (
-              <div key={item.id} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div
+                key={item.id}
+                className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-slate-50 rounded-xl px-2 -mx-2 transition-colors"
+                onClick={() => setSelectedComplaint(item)}
+                title="Click to view complaint details"
+              >
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-sm text-slate-900">{item.title}</span>
+                    {item.tracking_id && (
+                      <span className="font-mono text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
+                        {item.tracking_id}
+                      </span>
+                    )}
                     <StatusBadge status={item.status} />
                   </div>
                   <p className="text-xs text-slate-500">{item.description}</p>
@@ -386,6 +402,20 @@ export default function CitizenDashboard() {
           </p>
         </div>
       </Modal>
+
+      {/* LODGE COMPLAINT MODAL */}
+      <LodgeComplaintModal
+        isOpen={lodgeModalOpen}
+        onClose={() => setLodgeModalOpen(false)}
+        onSuccess={handleComplaintSubmitted}
+      />
+
+      {/* COMPLAINT DETAILS MODAL — Feature 2: Complaint Tracking */}
+      <ComplaintDetailsModal
+        isOpen={!!selectedComplaint}
+        complaint={selectedComplaint}
+        onClose={() => setSelectedComplaint(null)}
+      />
     </div>
   );
 }
