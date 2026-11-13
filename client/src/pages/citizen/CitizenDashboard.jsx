@@ -6,10 +6,11 @@ import { ROLES } from '../../lib/constants';
 import RoleBadge from '../../components/common/RoleBadge';
 import StatusBadge from '../../components/common/StatusBadge';
 import EmptyState from '../../components/common/EmptyState';
-import Modal from '../../components/common/Modal';
 import Alert from '../../components/common/Alert';
 import LodgeComplaintModal from '../../components/complaints/LodgeComplaintModal';
 import ComplaintDetailsModal from '../../components/complaints/ComplaintDetailsModal';
+import SurveyPollWidget from '../../components/surveys/SurveyPollWidget';
+import SchemesModal from '../../components/common/SchemesModal';
 import {
   FileText,
   PlusCircle,
@@ -17,33 +18,37 @@ import {
   Bell,
   MapPin,
   Clock,
-  Sparkles,
   User,
   ShieldCheck,
   Building2,
+  ThumbsUp,
+  BookOpen,
+  Users,
 } from 'lucide-react';
 
 export default function CitizenDashboard() {
   const { user, profile } = useAuth();
   const [complaints, setComplaints] = useState([]);
+  const [communityComplaints, setCommunityComplaints] = useState([]);
+  const [upvotes, setUpvotes] = useState({}); // { complaint_id: { count: number, userVoted: boolean } }
   const [projects, setProjects] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dataError, setDataError] = useState(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [activeModalFeature, setActiveModalFeature] = useState('');
+
   const [lodgeModalOpen, setLodgeModalOpen] = useState(false);
   const [selectedComplaint, setSelectedComplaint] = useState(null);
+  const [schemesModalOpen, setSchemesModalOpen] = useState(false);
 
   const handleComplaintSubmitted = (newComplaint) => {
     setComplaints((prev) => [newComplaint, ...prev]);
   };
 
   const citizenName = profile?.full_name || user?.email?.split('@')[0] || 'Citizen';
-  const constituency = profile?.constituency || 'Not provided';
-  const district = profile?.district || 'Not provided';
+  const constituency = profile?.constituency || 'Lucknow Central';
+  const district = profile?.district || 'Lucknow';
 
-  // Load database data if configured
+  // Load database data
   useEffect(() => {
     let mounted = true;
 
@@ -54,7 +59,7 @@ export default function CitizenDashboard() {
       }
 
       try {
-        // 1. Fetch citizen's complaints
+        // 1. Fetch citizen's own complaints
         const { data: complaintsData, error: complaintsError } = await supabase
           .from('complaints')
           .select('*, departments(name, code)')
@@ -62,20 +67,57 @@ export default function CitizenDashboard() {
           .order('created_at', { ascending: false });
         if (complaintsError) throw complaintsError;
 
-        // 2. Fetch public projects in their district
+        // 2. Fetch community complaints in their constituency/district
+        const { data: commData } = await supabase
+          .from('complaints')
+          .select('*, departments(name, code)')
+          .or(`constituency.eq.${constituency},district.eq.${district}`)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        // 3. Fetch upvote counts for community complaints
+        if (commData && commData.length > 0) {
+          const ids = commData.map((c) => c.id);
+          const { data: upvoteRows } = await supabase
+            .from('complaint_upvotes')
+            .select('complaint_id, citizen_id')
+            .in('complaint_id', ids);
+
+          const upvoteMap = {};
+          ids.forEach((id) => {
+            upvoteMap[id] = { count: 0, userVoted: false };
+          });
+
+          if (upvoteRows) {
+            upvoteRows.forEach((row) => {
+              if (upvoteMap[row.complaint_id]) {
+                upvoteMap[row.complaint_id].count += 1;
+                if (row.citizen_id === user.id) {
+                  upvoteMap[row.complaint_id].userVoted = true;
+                }
+              }
+            });
+          }
+          if (mounted) {
+            setUpvotes(upvoteMap);
+            setCommunityComplaints(commData);
+          }
+        }
+
+        // 4. Fetch public projects in their district
         const { data: projectsData, error: projectsError } = await supabase
           .from('public_projects')
           .select('*, departments(name, code)')
           .order('created_at', { ascending: false })
-          .limit(3);
+          .limit(4);
         if (projectsError) throw projectsError;
 
-        // 3. Fetch announcements
+        // 5. Fetch announcements
         const { data: announcementsData, error: announcementsError } = await supabase
           .from('announcements')
           .select('*')
           .order('created_at', { ascending: false })
-          .limit(3);
+          .limit(4);
         if (announcementsError) throw announcementsError;
 
         if (mounted) {
@@ -84,7 +126,7 @@ export default function CitizenDashboard() {
           if (announcementsData) setAnnouncements(announcementsData);
         }
       } catch {
-        if (mounted) setDataError('Some dashboard information could not be loaded. Refresh the page to try again.');
+        if (mounted) setDataError('Some dashboard records could not be loaded. Refresh to try again.');
       } finally {
         if (mounted) setLoading(false);
       }
@@ -94,14 +136,39 @@ export default function CitizenDashboard() {
     return () => {
       mounted = false;
     };
-  }, [user]);
+  }, [user, constituency, district]);
 
-  const openPhaseNotice = (featureName) => {
-    setActiveModalFeature(featureName);
-    setModalOpen(true);
+  // Toggle upvote on a community complaint
+  const handleToggleUpvote = async (complaintId, e) => {
+    e.stopPropagation();
+    if (!user || !isSupabaseConfigured) return;
+
+    const current = upvotes[complaintId] || { count: 0, userVoted: false };
+
+    if (current.userVoted) {
+      // Remove upvote
+      setUpvotes((prev) => ({
+        ...prev,
+        [complaintId]: { count: Math.max(0, current.count - 1), userVoted: false },
+      }));
+      await supabase
+        .from('complaint_upvotes')
+        .delete()
+        .eq('complaint_id', complaintId)
+        .eq('citizen_id', user.id);
+    } else {
+      // Add upvote
+      setUpvotes((prev) => ({
+        ...prev,
+        [complaintId]: { count: current.count + 1, userVoted: true },
+      }));
+      await supabase
+        .from('complaint_upvotes')
+        .insert([{ complaint_id: complaintId, citizen_id: user.id }]);
+    }
   };
 
-  // Complaint metrics
+  // Metrics
   const submittedCount = complaints.filter((c) => c.status === 'submitted').length;
   const inProgressCount = complaints.filter((c) => ['assigned', 'in_progress', 'under_review'].includes(c.status)).length;
   const resolvedCount = complaints.filter((c) => c.status === 'resolved').length;
@@ -109,7 +176,8 @@ export default function CitizenDashboard() {
   return (
     <div className="space-y-8">
       {dataError && <Alert type="error" message={dataError} />}
-      {/* 1. WELCOME & JURISDICTION SUMMARY */}
+
+      {/* 1. Welcome Header */}
       <div className="bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 rounded-3xl p-6 sm:p-8 text-white shadow-md relative overflow-hidden">
         <div className="max-w-2xl space-y-3 relative z-10">
           <div className="flex items-center gap-2">
@@ -120,7 +188,7 @@ export default function CitizenDashboard() {
             Namaste, {citizenName}
           </h1>
           <p className="text-xs sm:text-sm text-blue-100 leading-relaxed">
-            Welcome to your JanSetu civic workspace. Here you can report localized community concerns, monitor public infrastructure works, and track municipal complaint resolutions.
+            Welcome to your JanSetu civic workspace. Report localized community concerns, upvote urgent neighborhood issues, participate in polls, and track resolution timelines.
           </p>
 
           <div className="pt-2 flex flex-wrap items-center gap-3 text-xs text-blue-200">
@@ -140,7 +208,7 @@ export default function CitizenDashboard() {
         </div>
       </div>
 
-      {/* 2. COMPLAINT STATUS SUMMARY METRICS */}
+      {/* 2. Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
           <div>
@@ -176,7 +244,7 @@ export default function CitizenDashboard() {
         </div>
       </div>
 
-      {/* 3. QUICK-ACTION CARDS */}
+      {/* 3. Quick Action Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <button
           onClick={() => setLodgeModalOpen(true)}
@@ -191,47 +259,48 @@ export default function CitizenDashboard() {
               Lodge New Grievance
             </h3>
             <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              Report potholes, water leakages, garbage, or street lights to the responsible department.
+              Report road issues, water drainage, waste collection, or power breakdowns with photos.
             </p>
           </div>
         </button>
 
-        <a
-          href="#public-projects"
-          className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-blue-300 hover:shadow-md transition-all text-left flex items-start gap-4 group cursor-pointer"
+        <button
+          onClick={() => setSchemesModalOpen(true)}
+          type="button"
+          className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-emerald-300 hover:shadow-md transition-all text-left flex items-start gap-4 group cursor-pointer"
         >
           <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-            <FolderGit2 className="w-5 h-5" />
+            <BookOpen className="w-5 h-5" />
           </div>
           <div>
             <h3 className="text-sm font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">
-              Explore Public Works
+              Welfare Schemes &amp; Services
             </h3>
             <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              Inspect budget allocations and completion deadlines for ongoing works in {constituency}.
+              Explore national and state welfare schemes (PMAY, Ayushman Bharat, Har Ghar Jal, PM-Surya).
             </p>
           </div>
-        </a>
+        </button>
 
         <Link
           to="/citizen/profile"
-          className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-blue-300 hover:shadow-md transition-all text-left flex items-start gap-4 group cursor-pointer"
+          className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-purple-300 hover:shadow-md transition-all text-left flex items-start gap-4 group cursor-pointer"
         >
           <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center flex-shrink-0 group-hover:bg-purple-600 group-hover:text-white transition-colors">
             <User className="w-5 h-5" />
           </div>
           <div>
             <h3 className="text-sm font-bold text-slate-900 group-hover:text-purple-600 transition-colors">
-              Profile &amp; Locality
+              Profile &amp; Settings
             </h3>
             <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              Review your registered assembly ward, contact preferences, and security settings.
+              Update photo, registered locality ward, notification alerts, and password security.
             </p>
           </div>
         </Link>
       </div>
 
-      {/* 4. MY COMPLAINTS SECTION (WITH HONEST EMPTY STATE) */}
+      {/* 4. My Complaints Section */}
       <section id="my-complaints" className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
           <div>
@@ -268,7 +337,7 @@ export default function CitizenDashboard() {
                 key={item.id}
                 className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-slate-50 rounded-xl px-2 -mx-2 transition-colors"
                 onClick={() => setSelectedComplaint(item)}
-                title="Click to view complaint details"
+                title="Click to view complaint details and timeline"
               >
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -280,7 +349,7 @@ export default function CitizenDashboard() {
                     )}
                     <StatusBadge status={item.status} />
                   </div>
-                  <p className="text-xs text-slate-500">{item.description}</p>
+                  <p className="text-xs text-slate-500 line-clamp-2">{item.description}</p>
                   <div className="flex items-center gap-3 text-[11px] text-slate-400 pt-1">
                     <span>Department: {item.departments?.name || 'Assigned Division'}</span>
                     <span>•</span>
@@ -293,7 +362,89 @@ export default function CitizenDashboard() {
         )}
       </section>
 
-      {/* 5. PUBLIC PROJECTS PREVIEW */}
+      {/* 5. Community Complaints & Upvoting Section */}
+      <section id="community-grievances" className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <Users className="w-5 h-5 text-blue-600" />
+              Community Concerns in {constituency}
+            </h2>
+            <p className="text-xs text-slate-500">
+              Support localized issues raised by fellow residents to highlight collective urgency to representatives.
+            </p>
+          </div>
+        </div>
+
+        {communityComplaints.length === 0 ? (
+          <p className="text-xs text-slate-400 py-4 text-center">No community issues logged in this ward yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {communityComplaints.map((item) => {
+              const upvoteState = upvotes[item.id] || { count: 0, userVoted: false };
+
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => setSelectedComplaint(item)}
+                  className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 hover:border-blue-300 transition-all flex flex-col justify-between cursor-pointer space-y-3"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="text-xs font-bold text-slate-900 line-clamp-1">{item.title}</h3>
+                      <StatusBadge status={item.status} />
+                    </div>
+                    <p className="text-[11px] text-slate-600 line-clamp-2">{item.description}</p>
+                    <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                      <span>{item.category}</span>
+                      <span>•</span>
+                      <span>{item.landmark || item.constituency}</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs">
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {item.tracking_id || item.id.slice(0, 8)}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={(e) => handleToggleUpvote(item.id, e)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                        upvoteState.userVoted
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-white text-slate-700 border border-slate-200 hover:bg-blue-50 hover:text-blue-600'
+                      }`}
+                    >
+                      <ThumbsUp className={`w-3.5 h-3.5 ${upvoteState.userVoted ? 'fill-current' : ''}`} />
+                      <span>{upvoteState.count} {upvoteState.count === 1 ? 'Support' : 'Supports'}</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* 6. Surveys & Polls Section */}
+      <section id="surveys-section" className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Public Consensus Polls</h2>
+            <p className="text-xs text-slate-500">
+              Participate in surveys initiated by your constituency representative.
+            </p>
+          </div>
+          <span className="text-xs font-semibold text-purple-600 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-200">
+            Citizen Voting
+          </span>
+        </div>
+
+        <SurveyPollWidget constituency={constituency} />
+      </section>
+
+      {/* 7. Public Projects Section */}
       <section id="public-projects" className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
           <div>
@@ -328,21 +479,19 @@ export default function CitizenDashboard() {
             <div className="col-span-2">
               <EmptyState
                 icon={FolderGit2}
-                title="Public Project Tracking Foundation Active"
-                description="Public project listings are planned for a later phase. No live project data is configured."
-                isFutureModule={true}
-                phase="Database Seed"
+                title="Public Project Tracking Active"
+                description="Infrastructure projects registered for this constituency will appear here with budgets and deadlines."
               />
             </div>
           )}
         </div>
       </section>
 
-      {/* 6. ANNOUNCEMENTS PREVIEW */}
+      {/* 8. Announcements Section */}
       <section id="announcements" className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Official Constituency Bulletins</h2>
+            <h2 className="text-lg font-bold text-slate-900">Official Bulletins</h2>
             <p className="text-xs text-slate-500">
               Verified announcements published by elected representatives and municipal departments.
             </p>
@@ -366,55 +515,27 @@ export default function CitizenDashboard() {
           <EmptyState
             icon={Bell}
             title="No public announcements yet"
-            description="Official notices will appear here when representatives or departments publish them. This module is prepared in the database and will be fully interactive in a later phase."
-            isFutureModule={true}
-            phase="Coming in the next phase"
+            description="Official notices will appear here when representatives or departments publish bulletins for your ward."
           />
         )}
       </section>
 
-      {/* MODAL FOR FUTURE MODULE NOTICES (No fake successful operations!) */}
-      <Modal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={activeModalFeature}
-        footer={
-          <button
-            onClick={() => setModalOpen(false)}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl cursor-pointer"
-          >
-            Understood
-          </button>
-        }
-      >
-        <div className="space-y-3">
-          <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-blue-600 flex-shrink-0" />
-            <span className="font-semibold">Coming in Next Phase (Phase 2):</span>
-          </div>
-
-          <p className="text-xs text-slate-600 leading-relaxed">
-            The foundation for <strong>{activeModalFeature}</strong> is prepared in our PostgreSQL database schema (with tables, foreign keys, and RLS policies). Full interactive complaint submission forms and media uploads are scheduled for implementation in Phase 2.
-          </p>
-
-          <p className="text-xs text-slate-500">
-            In V1 Foundation, our objective is solidifying authentication, secure role isolation, RLS policies, session persistence, and responsive layouts.
-          </p>
-        </div>
-      </Modal>
-
-      {/* LODGE COMPLAINT MODAL */}
+      {/* Modals */}
       <LodgeComplaintModal
         isOpen={lodgeModalOpen}
         onClose={() => setLodgeModalOpen(false)}
         onSuccess={handleComplaintSubmitted}
       />
 
-      {/* COMPLAINT DETAILS MODAL — Feature 2: Complaint Tracking */}
       <ComplaintDetailsModal
         isOpen={!!selectedComplaint}
         complaint={selectedComplaint}
         onClose={() => setSelectedComplaint(null)}
+      />
+
+      <SchemesModal
+        isOpen={schemesModalOpen}
+        onClose={() => setSchemesModalOpen(false)}
       />
     </div>
   );

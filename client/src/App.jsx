@@ -22,7 +22,9 @@ import UnauthorizedPage from './pages/auth/UnauthorizedPage';
 import CitizenDashboard from './pages/citizen/CitizenDashboard';
 import CitizenProfilePage from './pages/citizen/CitizenProfilePage';
 import RepresentativeDashboard from './pages/representative/RepresentativeDashboard';
+import RepresentativeProfilePage from './pages/representative/RepresentativeProfilePage';
 import DepartmentDashboard from './pages/department/DepartmentDashboard';
+import DepartmentProfilePage from './pages/department/DepartmentProfilePage';
 import NotFoundPage from './pages/NotFoundPage';
 
 export default function App() {
@@ -52,6 +54,7 @@ export default function App() {
             <Route path="*" element={<NotFoundPage />} />
           </Route>
 
+          {/* Citizen Protected Routes */}
           <Route
             element={
               <ProtectedRoute allowedRoles={[ROLES.CITIZEN]}>
@@ -64,6 +67,7 @@ export default function App() {
             <Route path="/citizen/settings" element={<Navigate to="/citizen/profile" replace />} />
           </Route>
 
+          {/* Representative Protected Routes */}
           <Route
             element={
               <ProtectedRoute allowedRoles={[ROLES.REPRESENTATIVE]}>
@@ -72,8 +76,11 @@ export default function App() {
             }
           >
             <Route path="/representative/dashboard" element={<RepresentativeDashboard />} />
+            <Route path="/representative/profile" element={<RepresentativeProfilePage />} />
+            <Route path="/representative/settings" element={<Navigate to="/representative/profile" replace />} />
           </Route>
 
+          {/* Department Official Protected Routes */}
           <Route
             element={
               <ProtectedRoute allowedRoles={[ROLES.DEPARTMENT]}>
@@ -82,6 +89,8 @@ export default function App() {
             }
           >
             <Route path="/department/dashboard" element={<DepartmentDashboard />} />
+            <Route path="/department/profile" element={<DepartmentProfilePage />} />
+            <Route path="/department/settings" element={<Navigate to="/department/profile" replace />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { ROLES, ROLE_CONFIG } from '../../lib/constants';
 import RoleBadge from '../common/RoleBadge';
 import SupabaseSetupNotice from '../common/SupabaseSetupNotice';
+import NotificationBell from '../notifications/NotificationBell';
 import {
   LayoutDashboard,
   FileText,
@@ -16,6 +17,7 @@ import {
   ChevronRight,
   Home,
   CheckCircle2,
+  Users,
 } from 'lucide-react';
 
 export default function DashboardLayout() {
@@ -41,24 +43,28 @@ export default function DashboardLayout() {
         return [
           { name: 'Constituency Overview', path: '/representative/dashboard', icon: LayoutDashboard },
           { name: 'Complaints Monitoring', path: '#complaints-section', icon: FileText, isSection: true },
-          { name: 'Community Concerns', path: '#community-section', icon: CheckCircle2, isSection: true },
+          { name: 'Community Concerns', path: '#community-section', icon: Users, isSection: true },
           { name: 'Public Projects', path: '#projects-section', icon: FolderGit2, isSection: true },
-          { name: 'Official Announcements', path: '#announcements-section', icon: Bell, isSection: true },
+          { name: 'Official Bulletins', path: '#announcements-section', icon: Bell, isSection: true },
+          { name: 'Profile & Settings', path: '/representative/profile', icon: User },
         ];
       case ROLES.DEPARTMENT:
         return [
           { name: 'Department Workdesk', path: '/department/dashboard', icon: LayoutDashboard },
           { name: 'Assigned Complaints', path: '#assigned-section', icon: FileText, isSection: true },
           { name: 'Resolution History', path: '#history-section', icon: CheckCircle2, isSection: true },
-          { name: 'Project Assignments', path: '#projects-section', icon: FolderGit2, isSection: true },
+          { name: 'Department Projects', path: '#projects-section', icon: FolderGit2, isSection: true },
+          { name: 'Profile & Settings', path: '/department/profile', icon: User },
         ];
       case ROLES.CITIZEN:
       default:
         return [
           { name: 'My Dashboard', path: '/citizen/dashboard', icon: LayoutDashboard },
           { name: 'My Complaints', path: '#my-complaints', icon: FileText, isSection: true },
-          { name: 'Public Projects', path: '#public-projects', icon: FolderGit2, isSection: true },
-          { name: 'Announcements', path: '#announcements', icon: Bell, isSection: true },
+          { name: 'Community Concerns', path: '#community-grievances', icon: Users, isSection: true },
+          { name: 'Surveys & Polls', path: '#surveys-section', icon: CheckCircle2, isSection: true },
+          { name: 'Public Works', path: '#public-projects', icon: FolderGit2, isSection: true },
+          { name: 'Official Bulletins', path: '#announcements', icon: Bell, isSection: true },
           { name: 'Profile & Settings', path: '/citizen/profile', icon: User },
         ];
     }
@@ -91,8 +97,16 @@ export default function DashboardLayout() {
           {/* User profile capsule in sidebar */}
           <div className="p-4 mx-3 my-3 rounded-2xl bg-slate-50 border border-slate-200/80">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-sm">
-                {(profile?.full_name || user?.email)?.[0]?.toUpperCase() || 'U'}
+              <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-sm overflow-hidden flex-shrink-0">
+                {profile?.avatar_url ? (
+                  <img
+                    src={profile.avatar_url}
+                    alt={profile.full_name || 'Profile'}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  (profile?.full_name || user?.email)?.[0]?.toUpperCase() || 'U'
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-bold text-slate-900 truncate">
@@ -103,8 +117,8 @@ export default function DashboardLayout() {
             </div>
             <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between">
               <RoleBadge role={userRole} className="text-[10px]" />
-              <span className="text-[10px] text-slate-400">
-                {profile?.district || 'Lucknow'}
+              <span className="text-[10px] text-slate-400 truncate max-w-[100px]">
+                {profile?.constituency || profile?.district || 'Lucknow'}
               </span>
             </div>
           </div>
@@ -191,9 +205,24 @@ export default function DashboardLayout() {
                 </button>
               </div>
 
-              <div className="p-4 bg-slate-50 border-b border-slate-200">
-                <p className="text-xs font-bold text-slate-900">{profile?.full_name || user?.email}</p>
-                <RoleBadge role={userRole} className="mt-1" />
+              <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-sm overflow-hidden flex-shrink-0">
+                  {profile?.avatar_url ? (
+                    <img
+                      src={profile.avatar_url}
+                      alt="Avatar"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    (profile?.full_name || user?.email)?.[0]?.toUpperCase() || 'U'
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-900 truncate">
+                    {profile?.full_name || user?.email}
+                  </p>
+                  <RoleBadge role={userRole} className="mt-1" />
+                </div>
               </div>
 
               <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
@@ -220,7 +249,7 @@ export default function DashboardLayout() {
                     handleSignOut();
                   }}
                   type="button"
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl cursor-pointer"
                 >
                   <LogOut className="w-4 h-4" /> Sign Out
                 </button>
@@ -237,7 +266,7 @@ export default function DashboardLayout() {
               <button
                 onClick={() => setSidebarOpen(true)}
                 type="button"
-                className="md:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100"
+                className="md:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer"
                 aria-label="Open sidebar"
               >
                 <Menu className="w-5 h-5" />
@@ -253,7 +282,11 @@ export default function DashboardLayout() {
             </div>
 
             <div className="flex items-center gap-3">
+              {/* Database-backed Notification Bell */}
+              <NotificationBell />
+
               <RoleBadge role={userRole} />
+
               <button
                 onClick={handleSignOut}
                 type="button"

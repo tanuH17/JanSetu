@@ -1,53 +1,62 @@
-import React from 'react';
-import { X, Copy, CheckCircle2, Clock, FileText, MapPin, Tag, Building2, CalendarDays, StickyNote } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  X,
+  Copy,
+  Check,
+  CheckCircle2,
+  FileText,
+  MapPin,
+  Building2,
+  CalendarDays,
+  StickyNote,
+  ExternalLink,
+  Image,
+} from 'lucide-react';
 import StatusBadge from '../common/StatusBadge';
 
 // Status timeline definition — in display order
 const TIMELINE_STEPS = [
-  { key: 'submitted',    label: 'Submitted',    description: 'Your complaint has been received.' },
-  { key: 'under_review', label: 'Under Review',  description: 'Being reviewed for assignment.' },
-  { key: 'in_progress',  label: 'In Progress',   description: 'Department is actively working on it.' },
-  { key: 'resolved',     label: 'Resolved',      description: 'Issue has been addressed.' },
+  { key: 'submitted', label: 'Submitted', description: 'Your grievance has been received.' },
+  { key: 'under_review', label: 'Under Review', description: 'Being triaged for departmental inspection.' },
+  { key: 'in_progress', label: 'In Progress', description: 'Active field investigation or repair in progress.' },
+  { key: 'resolved', label: 'Resolved', description: 'Action taken and documented.' },
 ];
 
-// Map every possible DB status to its timeline step index (0-based)
 const STATUS_STEP_INDEX = {
-  submitted:    0,
+  submitted: 0,
   under_review: 1,
-  assigned:     1, // Show at "Under Review" tier for display purposes
-  in_progress:  2,
-  resolved:     3,
-  rejected:     3, // Show at end, but coloured differently
+  assigned: 1,
+  in_progress: 2,
+  resolved: 3,
+  rejected: 3,
 };
 
 function TimelineStep({ step, index, currentStepIndex, isRejected }) {
-  const isDone    = index < currentStepIndex;
+  const isDone = index < currentStepIndex;
   const isCurrent = index === currentStepIndex;
-  const isFuture  = index > currentStepIndex;
 
-  // Special colouring for rejection at the final step
   const isRejectStep = isRejected && index === TIMELINE_STEPS.length - 1;
 
   let circleClass = 'w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 ';
-  let labelClass  = 'text-xs font-semibold ';
-  let descClass   = 'text-[11px] ';
+  let labelClass = 'text-xs font-semibold ';
+  let descClass = 'text-[11px] ';
 
   if (isRejectStep) {
     circleClass += 'bg-rose-500 border-rose-500 text-white';
-    labelClass  += 'text-rose-700';
-    descClass   += 'text-rose-500';
+    labelClass += 'text-rose-700';
+    descClass += 'text-rose-500';
   } else if (isDone) {
     circleClass += 'bg-emerald-500 border-emerald-500 text-white';
-    labelClass  += 'text-emerald-700';
-    descClass   += 'text-emerald-600';
+    labelClass += 'text-emerald-700';
+    descClass += 'text-emerald-600';
   } else if (isCurrent) {
     circleClass += 'bg-blue-600 border-blue-600 text-white';
-    labelClass  += 'text-blue-700';
-    descClass   += 'text-blue-500';
+    labelClass += 'text-blue-700';
+    descClass += 'text-blue-500';
   } else {
     circleClass += 'bg-slate-100 border-slate-300 text-slate-400';
-    labelClass  += 'text-slate-400';
-    descClass   += 'text-slate-400';
+    labelClass += 'text-slate-400';
+    descClass += 'text-slate-400';
   }
 
   return (
@@ -68,10 +77,10 @@ function TimelineStep({ step, index, currentStepIndex, isRejected }) {
       </div>
       <div className="pb-1">
         <p className={labelClass}>
-          {isRejectStep && isRejected ? 'Rejected' : step.label}
+          {isRejectStep && isRejected ? 'Rejected / Closed' : step.label}
         </p>
         <p className={descClass}>
-          {isRejectStep && isRejected ? 'This complaint was not actioned.' : step.description}
+          {isRejectStep && isRejected ? 'This complaint was evaluated and closed without further action.' : step.description}
         </p>
       </div>
     </div>
@@ -92,145 +101,182 @@ function InfoRow({ icon: Icon, label, value }) {
 }
 
 export default function ComplaintDetailsModal({ isOpen, onClose, complaint }) {
-  const [copied, setCopied] = React.useState(false);
+  const [copied, setCopied] = useState(false);
 
   if (!isOpen || !complaint) return null;
 
   const isRejected = complaint.status === 'rejected';
   const currentStepIndex = STATUS_STEP_INDEX[complaint.status] ?? 0;
 
-  function handleCopy() {
-    if (complaint.tracking_id) {
-      navigator.clipboard.writeText(complaint.tracking_id).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      });
+  const handleCopyTrackingId = async () => {
+    if (!complaint.tracking_id) return;
+    try {
+      await navigator.clipboard.writeText(complaint.tracking_id);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
-  }
-
-  function formatDate(dateStr) {
-    if (!dateStr) return null;
-    return new Date(dateStr).toLocaleDateString('en-IN', {
-      day: 'numeric', month: 'short', year: 'numeric',
-    });
-  }
+  };
 
   return (
     <div
       className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
-        className="relative bg-white rounded-2xl shadow-xl border border-slate-200 max-w-lg w-full animate-in fade-in zoom-in-95 duration-150"
+        className="relative bg-white rounded-3xl shadow-xl border border-slate-200 max-w-xl w-full p-6 sm:p-7 animate-in fade-in zoom-in-95 duration-150 my-8"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="cdet-title"
+        aria-labelledby="complaint-details-title"
       >
         {/* Header */}
-        <div className="flex items-start justify-between p-6 pb-4 border-b border-slate-100">
-          <div className="space-y-1 pr-4">
-            <h3 id="cdet-title" className="text-base font-bold text-slate-900 leading-snug">
+        <div className="flex items-start justify-between pb-4 border-b border-slate-100">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs uppercase font-bold text-slate-400">Grievance Record</span>
+              {complaint.tracking_id && (
+                <button
+                  type="button"
+                  onClick={handleCopyTrackingId}
+                  className="font-mono text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 hover:bg-blue-100 transition-colors cursor-pointer"
+                  title="Click to copy tracking ID"
+                >
+                  <span>{complaint.tracking_id}</span>
+                  {copied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3 text-blue-500" />}
+                </button>
+              )}
+            </div>
+            <h3 id="complaint-details-title" className="text-base sm:text-lg font-bold text-slate-900">
               {complaint.title}
             </h3>
-            {complaint.tracking_id && (
-              <div className="flex items-center gap-1.5">
-                <span className="font-mono text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
-                  {complaint.tracking_id}
-                </span>
-                <button
-                  onClick={handleCopy}
-                  title="Copy tracking ID"
-                  className="p-0.5 rounded text-slate-400 hover:text-blue-600 transition-colors cursor-pointer"
-                >
-                  {copied ? (
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  ) : (
-                    <Copy className="w-3.5 h-3.5" />
-                  )}
-                </button>
-              </div>
-            )}
-            <div className="pt-0.5">
-              <StatusBadge status={complaint.status} />
-            </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors flex-shrink-0 cursor-pointer"
-            aria-label="Close"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+            aria-label="Close dialog"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
-
-          {/* Meta info grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            <InfoRow icon={Tag}         label="Category"      value={complaint.category} />
-            <InfoRow icon={MapPin}      label="District"      value={complaint.district} />
-            <InfoRow icon={MapPin}      label="Constituency"  value={complaint.constituency} />
-            <InfoRow icon={MapPin}      label="Landmark"      value={complaint.landmark} />
-            <InfoRow icon={Building2}   label="Department"    value={complaint.departments?.name || null} />
-            <InfoRow icon={CalendarDays} label="Submitted"   value={formatDate(complaint.created_at)} />
-            {complaint.updated_at && complaint.updated_at !== complaint.created_at && (
-              <InfoRow icon={Clock} label="Last Updated" value={formatDate(complaint.updated_at)} />
+        <div className="space-y-6 pt-4 max-h-[70vh] overflow-y-auto pr-1">
+          {/* Status & Priority Badge Banner */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Current Status:</span>
+              <StatusBadge status={complaint.status} />
+            </div>
+            {complaint.priority && (
+              <span className="text-[11px] font-bold uppercase px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                Priority: {complaint.priority}
+              </span>
             )}
           </div>
 
-          {/* Description */}
-          {complaint.description && (
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-                <FileText className="w-3.5 h-3.5 text-slate-400" />
-                <span>Description</span>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 rounded-xl p-3 border border-slate-100">
-                {complaint.description}
-              </p>
+          {/* Lifecycle Timeline */}
+          <div className="space-y-3">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Resolution Lifecycle</h4>
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
+              {TIMELINE_STEPS.map((step, idx) => (
+                <TimelineStep
+                  key={step.key}
+                  step={step}
+                  index={idx}
+                  currentStepIndex={currentStepIndex}
+                  isRejected={isRejected}
+                />
+              ))}
             </div>
-          )}
-
-          {/* Status Timeline */}
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-slate-700 mb-3">Complaint Progress</p>
-            {TIMELINE_STEPS.map((step, index) => (
-              <TimelineStep
-                key={step.key}
-                step={step}
-                index={index}
-                currentStepIndex={currentStepIndex}
-                isRejected={isRejected}
-              />
-            ))}
           </div>
 
-          {/* Resolution / Rejection notes */}
-          {(complaint.status === 'resolved' || complaint.status === 'rejected') && complaint.resolution_notes && (
-            <div className={`rounded-xl p-3.5 border space-y-1 ${
-              complaint.status === 'resolved'
-                ? 'bg-emerald-50 border-emerald-200'
-                : 'bg-rose-50 border-rose-200'
-            }`}>
-              <div className="flex items-center gap-1.5">
-                <StickyNote className={`w-3.5 h-3.5 ${complaint.status === 'resolved' ? 'text-emerald-600' : 'text-rose-600'}`} />
-                <span className={`text-xs font-semibold ${complaint.status === 'resolved' ? 'text-emerald-800' : 'text-rose-800'}`}>
-                  {complaint.status === 'resolved' ? 'Resolution Notes' : 'Rejection Reason'}
-                </span>
+          {/* Complainant Issue Description */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Grievance Description</h4>
+            <p className="text-xs text-slate-700 leading-relaxed p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80">
+              {complaint.description}
+            </p>
+          </div>
+
+          {/* Supporting Evidence Image if Present */}
+          {complaint.attachment_url && (
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <Image className="w-3.5 h-3.5 text-blue-500" /> Supporting Photo Evidence
+              </h4>
+              <div className="rounded-2xl border border-slate-200 overflow-hidden bg-slate-100 max-h-56">
+                <a href={complaint.attachment_url} target="_blank" rel="noopener noreferrer" className="block relative group">
+                  <img
+                    src={complaint.attachment_url}
+                    alt="Supporting attachment"
+                    className="w-full h-48 object-cover group-hover:opacity-90 transition-opacity"
+                  />
+                  <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-semibold gap-1.5 transition-opacity">
+                    <ExternalLink className="w-4 h-4" /> Open Full Image
+                  </div>
+                </a>
               </div>
-              <p className={`text-xs leading-relaxed ${complaint.status === 'resolved' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {complaint.resolution_notes}
-              </p>
             </div>
           )}
+
+          {/* Department / Representative Resolution Notes */}
+          {complaint.resolution_notes && (
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
+                <StickyNote className="w-3.5 h-3.5" /> Department Resolution Remarks
+              </h4>
+              <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-200 text-xs text-emerald-950 space-y-1">
+                <p className="leading-relaxed">{complaint.resolution_notes}</p>
+                {complaint.resolved_at && (
+                  <p className="text-[10px] text-emerald-700 font-mono pt-1">
+                    Resolved at: {new Date(complaint.resolved_at).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Resolution Evidence Uploaded by Department */}
+          {complaint.resolution_attachment_url && (
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Work Completion Proof
+              </h4>
+              <div className="rounded-2xl border border-emerald-200 overflow-hidden bg-slate-100 max-h-56">
+                <a href={complaint.resolution_attachment_url} target="_blank" rel="noopener noreferrer" className="block relative group">
+                  <img
+                    src={complaint.resolution_attachment_url}
+                    alt="Work completion proof"
+                    className="w-full h-48 object-cover group-hover:opacity-90 transition-opacity"
+                  />
+                  <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-semibold gap-1.5 transition-opacity">
+                    <ExternalLink className="w-4 h-4" /> View Completion Proof
+                  </div>
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Metadata Information */}
+          <div className="space-y-2 pt-2 border-t border-slate-100">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Jurisdiction &amp; Routing</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80">
+              <InfoRow icon={Building2} label="Department" value={complaint.departments?.name || 'Pending routing'} />
+              <InfoRow icon={FileText} label="Category" value={complaint.category} />
+              <InfoRow icon={MapPin} label="Location" value={`${complaint.landmark || ''}, ${complaint.constituency || ''}, ${complaint.district || ''}`} />
+              <InfoRow icon={CalendarDays} label="Reported On" value={new Date(complaint.created_at).toLocaleDateString()} />
+            </div>
+          </div>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-100 flex justify-end">
+        <div className="pt-4 mt-6 border-t border-slate-100 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
           >
             Close
           </button>

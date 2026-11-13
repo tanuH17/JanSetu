@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { ROLES, COMPLAINT_STATUSES } from '../../lib/constants';
 import RoleBadge from '../../components/common/RoleBadge';
 import StatusBadge from '../../components/common/StatusBadge';
 import EmptyState from '../../components/common/EmptyState';
-import Modal from '../../components/common/Modal';
 import Alert from '../../components/common/Alert';
 import UpdateComplaintModal from '../../components/complaints/UpdateComplaintModal';
 import CreateAnnouncementModal from '../../components/announcements/CreateAnnouncementModal';
+import CreateSurveyModal from '../../components/surveys/CreateSurveyModal';
+import SurveyPollWidget from '../../components/surveys/SurveyPollWidget';
+import ComplaintDetailsModal from '../../components/complaints/ComplaintDetailsModal';
 import {
   Shield,
   FileText,
@@ -16,7 +19,6 @@ import {
   BarChart3,
   CheckCircle2,
   Clock,
-  Sparkles,
   MapPin,
   FolderGit2,
   Bell,
@@ -25,6 +27,10 @@ import {
   Megaphone,
   CalendarDays,
   Pin,
+  Search,
+  ThumbsUp,
+  User,
+  Building2,
 } from 'lucide-react';
 
 export default function RepresentativeDashboard() {
@@ -32,24 +38,26 @@ export default function RepresentativeDashboard() {
   const [complaints, setComplaints] = useState([]);
   const [projects, setProjects] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
+  const [upvotes, setUpvotes] = useState({});
   const [dataError, setDataError] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [activeModalFeature, setActiveModalFeature] = useState('');
 
-  // Feature 3 — complaint management
+  // Filters & Search
+  const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
+
+  // Modals
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [selectedComplaint, setSelectedComplaint] = useState(null);
-
-  // Feature 4 — announcements
+  const [detailsComplaint, setDetailsComplaint] = useState(null);
   const [announceModalOpen, setAnnounceModalOpen] = useState(false);
+  const [surveyModalOpen, setSurveyModalOpen] = useState(false);
 
   const repName = profile?.full_name || 'Elected Representative';
-  const designation = profile?.designation || 'Authorized representative';
-  const constituency = profile?.constituency || 'Not assigned';
-  const district = profile?.district || 'Not specified';
+  const designation = profile?.designation || 'Authorized Representative';
+  const constituency = profile?.constituency || 'Lucknow Central';
+  const district = profile?.district || 'Lucknow';
 
   // Load constituency data
   useEffect(() => {
@@ -69,6 +77,26 @@ export default function RepresentativeDashboard() {
           .eq('constituency', constituency)
           .order('created_at', { ascending: false });
         if (complaintsError) throw complaintsError;
+
+        // Fetch upvotes for constituency complaints
+        if (complaintsData && complaintsData.length > 0) {
+          const ids = complaintsData.map((c) => c.id);
+          const { data: upvoteRows } = await supabase
+            .from('complaint_upvotes')
+            .select('complaint_id')
+            .in('complaint_id', ids);
+
+          const upvoteMap = {};
+          ids.forEach((id) => {
+            upvoteMap[id] = 0;
+          });
+          if (upvoteRows) {
+            upvoteRows.forEach((row) => {
+              upvoteMap[row.complaint_id] = (upvoteMap[row.complaint_id] || 0) + 1;
+            });
+          }
+          if (mounted) setUpvotes(upvoteMap);
+        }
 
         // Query public works in this constituency
         const { data: projectsData, error: projectsError } = await supabase
@@ -92,7 +120,7 @@ export default function RepresentativeDashboard() {
           if (announcementsData) setAnnouncements(announcementsData);
         }
       } catch {
-        if (mounted) setDataError('Assigned information could not be loaded. Refresh the page to try again.');
+        if (mounted) setDataError('Constituency records could not be loaded. Refresh the page to try again.');
       } finally {
         if (mounted) setLoading(false);
       }
@@ -104,80 +132,113 @@ export default function RepresentativeDashboard() {
     };
   }, [user, constituency]);
 
-  const openPhaseNotice = (featureName) => {
-    setActiveModalFeature(featureName);
-    setModalOpen(true);
-  };
-
-  // Feature 3 — when a complaint is updated, merge into list
   const handleComplaintUpdated = (updatedComplaint) => {
     setComplaints((prev) =>
       prev.map((c) => (c.id === updatedComplaint.id ? updatedComplaint : c))
     );
   };
 
-  // Feature 4 — prepend new announcement to list
   const handleAnnouncementCreated = (newAnnouncement) => {
     setAnnouncements((prev) => [newAnnouncement, ...prev]);
   };
 
-  // Derived: unique categories from loaded complaints for filter dropdown
   const availableCategories = [...new Set(complaints.map((c) => c.category).filter(Boolean))].sort();
 
-  // Filtered complaints
+  // Filtered and searched complaints
   const filteredComplaints = complaints.filter((c) => {
-    const matchStatus   = !filterStatus   || c.status === filterStatus;
+    const matchStatus = !filterStatus || c.status === filterStatus;
     const matchCategory = !filterCategory || c.category === filterCategory;
-    return matchStatus && matchCategory;
+    const matchSearch =
+      !searchQuery ||
+      c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (c.tracking_id && c.tracking_id.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      c.description.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchStatus && matchCategory && matchSearch;
   });
+
+  // Top supported community concerns (sorted by upvotes)
+  const topSupportedComplaints = [...complaints]
+    .filter((c) => (upvotes[c.id] || 0) > 0)
+    .sort((a, b) => (upvotes[b.id] || 0) - (upvotes[a.id] || 0))
+    .slice(0, 4);
 
   // Real database metrics calculation
   const totalCount = complaints.length;
   const pendingCount = complaints.filter((c) => ['submitted', 'under_review'].includes(c.status)).length;
   const inProgressCount = complaints.filter((c) => ['assigned', 'in_progress'].includes(c.status)).length;
   const resolvedCount = complaints.filter((c) => c.status === 'resolved').length;
+  const priorityCount = complaints.filter((c) => ['high', 'urgent'].includes(c.priority)).length;
 
   return (
     <div className="space-y-8">
       {dataError && <Alert type="error" message={dataError} />}
-      {/* 1. REPRESENTATIVE PROFILE & JURISDICTION HEADER */}
+
+      {/* 1. Profile & Jurisdiction Banner */}
       <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-md relative overflow-hidden">
-        <div className="max-w-2xl space-y-3 relative z-10">
-          <div className="flex items-center gap-2">
-            <RoleBadge role={ROLES.REPRESENTATIVE} className="bg-white/10 text-white border-white/20" />
-            <span className="text-xs text-blue-200">Legislative Oversight Portal</span>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+          <div className="max-w-2xl space-y-3">
+            <div className="flex items-center gap-2">
+              <RoleBadge role={ROLES.REPRESENTATIVE} className="bg-white/10 text-white border-white/20" />
+              <span className="text-xs text-blue-200">Legislative Oversight Portal</span>
+            </div>
+
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              {repName}
+            </h1>
+
+            <p className="text-xs sm:text-sm text-blue-200 font-medium">{designation}</p>
+
+            <p className="text-xs text-slate-300 leading-relaxed pt-1">
+              Official constituency oversight workdesk. Monitor civic grievances, assign departments, publish official bulletins, and poll constituents in {constituency}.
+            </p>
+
+            <div className="pt-2 flex flex-wrap items-center gap-3 text-xs text-blue-200">
+              <div className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-xl backdrop-blur-xs">
+                <MapPin className="w-3.5 h-3.5 text-blue-300" />
+                <span>
+                  Authorized Ward: <strong>{constituency}</strong> ({district})
+                </span>
+              </div>
+              <div className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-xl backdrop-blur-xs">
+                <Shield className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Administrative RLS Verified</span>
+              </div>
+            </div>
           </div>
 
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-            {repName}
-          </h1>
-
-          <p className="text-xs sm:text-sm text-blue-200 font-medium">{designation}</p>
-
-          <p className="text-xs text-slate-300 leading-relaxed pt-1">
-            Official constituency oversight workdesk. Monitor citizen complaints, review departmental resolution performance, and publish official public bulletins for {constituency}.
-          </p>
-
-          <div className="pt-2 flex flex-wrap items-center gap-3 text-xs text-blue-200">
-            <div className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-xl backdrop-blur-xs">
-              <MapPin className="w-3.5 h-3.5 text-blue-300" />
-              <span>
-                Authorized Constituency: <strong>{constituency}</strong> ({district})
-              </span>
-            </div>
-            <div className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-xl backdrop-blur-xs">
-              <Shield className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Administrative RLS Verified</span>
-            </div>
+          <div className="flex flex-col sm:flex-row md:flex-col gap-2">
+            <button
+              onClick={() => setSurveyModalOpen(true)}
+              type="button"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-purple-600 hover:bg-purple-700 transition-colors shadow-sm cursor-pointer"
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>Create Poll</span>
+            </button>
+            <button
+              onClick={() => setAnnounceModalOpen(true)}
+              type="button"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Draft Bulletin</span>
+            </button>
+            <Link
+              to="/representative/profile"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-800 bg-white hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              <User className="w-4 h-4" />
+              <span>My Profile &amp; Settings</span>
+            </Link>
           </div>
         </div>
       </div>
 
-      {/* 2. OVERVIEW METRICS CARDS (ACCURATE REAL DATA WITH 0s) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {/* 2. Overview Metrics Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Complaints</p>
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Grievances</p>
             <BarChart3 className="w-4 h-4 text-blue-600" />
           </div>
           <p className="text-2xl font-bold text-slate-900 mt-2">{totalCount}</p>
@@ -190,7 +251,7 @@ export default function RepresentativeDashboard() {
             <Clock className="w-4 h-4 text-amber-600" />
           </div>
           <p className="text-2xl font-bold text-slate-900 mt-2">{pendingCount}</p>
-          <span className="text-[10px] text-amber-600 font-medium">Under Review / Triage</span>
+          <span className="text-[10px] text-amber-600 font-medium">Under Triage</span>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
@@ -208,25 +269,45 @@ export default function RepresentativeDashboard() {
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           </div>
           <p className="text-2xl font-bold text-slate-900 mt-2">{resolvedCount}</p>
-          <span className="text-[10px] text-emerald-600 font-medium">From available records</span>
+          <span className="text-[10px] text-emerald-600 font-medium">Documented Action</span>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs col-span-2 sm:col-span-1">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Urgent / High</p>
+            <Shield className="w-4 h-4 text-rose-600" />
+          </div>
+          <p className="text-2xl font-bold text-rose-600 mt-2">{priorityCount}</p>
+          <span className="text-[10px] text-rose-500 font-medium">High Priority</span>
         </div>
       </div>
 
-      {/* 3. COMPLAINT MANAGEMENT SECTION */}
+      {/* 3. Complaint Management Section */}
       <section id="complaints-section" className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Constituency Complaint Management</h2>
+            <h2 className="text-lg font-bold text-slate-900">Constituency Grievance Oversight</h2>
             <p className="text-xs text-slate-500">
-              Aggregated grievance intake from residents in {constituency}. Filter by status or category.
+              Review, filter, triage, and route citizen complaints to municipal departments.
             </p>
           </div>
 
-          {/* Filters */}
-          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {/* Filters & Search */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Search */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search complaints or ID…"
+                className="text-xs pl-8 pr-3 py-1.5 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
             <div className="flex items-center gap-1.5 text-xs text-slate-500">
               <Filter className="w-3.5 h-3.5" />
-              <span className="font-medium">Filter:</span>
             </div>
 
             <select
@@ -253,9 +334,9 @@ export default function RepresentativeDashboard() {
               </select>
             )}
 
-            {(filterStatus || filterCategory) && (
+            {(filterStatus || filterCategory || searchQuery) && (
               <button
-                onClick={() => { setFilterStatus(''); setFilterCategory(''); }}
+                onClick={() => { setFilterStatus(''); setFilterCategory(''); setSearchQuery(''); }}
                 className="text-xs text-rose-600 hover:underline cursor-pointer"
               >
                 Clear
@@ -271,12 +352,12 @@ export default function RepresentativeDashboard() {
             <EmptyState
               icon={FileText}
               title="No Grievances Recorded for this Constituency"
-              description="As citizens register and lodge issues within your constituency, grievances will appear here for monitoring and departmental escalation."
+              description="As citizens lodge issues within your constituency, tickets will appear here for monitoring and departmental escalation."
             />
           ) : (
             <div className="text-center py-8 text-xs text-slate-500">
               No complaints match the selected filters.{' '}
-              <button onClick={() => { setFilterStatus(''); setFilterCategory(''); }} className="text-blue-600 hover:underline cursor-pointer">
+              <button onClick={() => { setFilterStatus(''); setFilterCategory(''); setSearchQuery(''); }} className="text-blue-600 hover:underline cursor-pointer">
                 Clear filters
               </button>
             </div>
@@ -287,42 +368,67 @@ export default function RepresentativeDashboard() {
               <thead className="bg-slate-50 text-slate-700 font-bold uppercase tracking-wider border-b border-slate-200">
                 <tr>
                   <th className="p-3">Tracking ID</th>
-                  <th className="p-3">Title / Issue</th>
+                  <th className="p-3">Title / Grievance</th>
                   <th className="p-3">Category</th>
-                  <th className="p-3">Department</th>
+                  <th className="p-3">Assigned Department</th>
                   <th className="p-3">Status</th>
+                  <th className="p-3">Support</th>
                   <th className="p-3">Reported On</th>
-                  <th className="p-3">Action</th>
+                  <th className="p-3">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredComplaints.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50">
+                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-3">
-                      {item.tracking_id ? (
-                        <span className="font-mono text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
-                          {item.tracking_id}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 italic">Pending</span>
-                      )}
+                      <span className="font-mono text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+                        {item.tracking_id || item.id.slice(0, 8)}
+                      </span>
                     </td>
-                    <td className="p-3 font-semibold text-slate-900 max-w-[180px]">
-                      <span className="line-clamp-2" title={item.title}>{item.title}</span>
+                    <td className="p-3 font-semibold text-slate-900 max-w-[200px]">
+                      <button
+                        onClick={() => setDetailsComplaint(item)}
+                        className="text-left hover:text-blue-600 line-clamp-1 cursor-pointer font-semibold"
+                        title="Click to view complaint details"
+                      >
+                        {item.title}
+                      </button>
                     </td>
                     <td className="p-3 text-slate-500">{item.category || '—'}</td>
-                    <td className="p-3">{item.departments?.name || '—'}</td>
+                    <td className="p-3">
+                      <span className="inline-flex items-center gap-1 font-medium text-slate-700">
+                        <Building2 className="w-3 h-3 text-slate-400" />
+                        {item.departments?.name || 'Unassigned'}
+                      </span>
+                    </td>
                     <td className="p-3">
                       <StatusBadge status={item.status} />
                     </td>
+                    <td className="p-3">
+                      {(upvotes[item.id] || 0) > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                          <ThumbsUp className="w-3 h-3" /> {upvotes[item.id]}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
                     <td className="p-3 whitespace-nowrap">{new Date(item.created_at).toLocaleDateString()}</td>
                     <td className="p-3">
-                      <button
-                        onClick={() => { setSelectedComplaint(item); setUpdateModalOpen(true); }}
-                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 font-semibold hover:underline cursor-pointer"
-                      >
-                        Update
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => { setSelectedComplaint(item); setUpdateModalOpen(true); }}
+                          className="px-2.5 py-1 rounded-lg text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer"
+                        >
+                          Review &amp; Route
+                        </button>
+                        <button
+                          onClick={() => setDetailsComplaint(item)}
+                          className="text-xs text-slate-400 hover:text-slate-700 underline cursor-pointer"
+                        >
+                          Details
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -332,59 +438,81 @@ export default function RepresentativeDashboard() {
         )}
       </section>
 
-      {/* 4. COMMUNITY CONCERNS & PUBLIC SURVEYS (PLANNED FOR PHASE 2) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Community Concerns */}
+      {/* 4. Community Concerns & Consensus Surveys */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Top Supported Issues */}
         <section id="community-section" className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Community Concerns &amp; Petitions</h2>
-              <p className="text-xs text-slate-500">Citizen upvotes and collective ward issues.</p>
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-blue-600" /> Community Petitions &amp; Upvoted Issues
+              </h2>
+              <p className="text-xs text-slate-500">Citizen upvotes indicating ward urgency.</p>
             </div>
-            <Users className="w-5 h-5 text-slate-400" />
           </div>
 
-          <EmptyState
-            icon={Users}
-            title="Community Polls &amp; Petitions Module"
-            description="This module will allow residents to upvote urgent infrastructure needs and propose local improvements for representative review."
-            actionLabel="Explore Planned Features"
-            onAction={() => openPhaseNotice('Community Concerns & Petitions')}
-            isFutureModule={true}
-            phase="Phase 2"
-          />
+          {topSupportedComplaints.length === 0 ? (
+            <p className="text-xs text-slate-400 py-6 text-center">
+              No citizen upvotes recorded yet. As constituents support urgent grievances, prioritized tickets will populate here.
+            </p>
+          ) : (
+            <div className="space-y-2.5">
+              {topSupportedComplaints.map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => setDetailsComplaint(item)}
+                  className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 hover:border-blue-300 transition-colors cursor-pointer flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-900 truncate">{item.title}</p>
+                    <p className="text-[11px] text-slate-500">{item.landmark || item.category}</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                      <ThumbsUp className="w-3 h-3" /> {upvotes[item.id]} Supports
+                    </span>
+                    <StatusBadge status={item.status} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* Public Surveys */}
         <section className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Constituency Feedback Surveys</h2>
-              <p className="text-xs text-slate-500">Gauge public sentiment on planned civic works.</p>
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-1.5">
+                <BarChart3 className="w-4 h-4 text-purple-600" /> Constituency Feedback Surveys
+              </h2>
+              <p className="text-xs text-slate-500">Real citizen consensus data in {constituency}.</p>
             </div>
-            <BarChart3 className="w-5 h-5 text-slate-400" />
+            <button
+              onClick={() => setSurveyModalOpen(true)}
+              type="button"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-purple-600 hover:bg-purple-700 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Poll</span>
+            </button>
           </div>
 
-          <EmptyState
-            icon={BarChart3}
-            title="Public Opinion Surveys"
-            description="Publish single-question polls and community feedback surveys to gather constituent consensus on road widening, parks, and sanitation schedules."
-            actionLabel="Schedule a Survey"
-            onAction={() => openPhaseNotice('Public Surveys Engine')}
-            isFutureModule={true}
-            phase="Phase 2"
+          <SurveyPollWidget
+            constituency={constituency}
+            onOpenCreateModal={() => setSurveyModalOpen(true)}
           />
         </section>
       </div>
 
-      {/* 5. PROJECT TRACKING & OFFICIAL ANNOUNCEMENTS */}
+      {/* 5. Project Tracking & Official Announcements */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Project Tracking */}
         <section id="projects-section" className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Constituency Project Oversight</h2>
-              <p className="text-xs text-slate-500">Infrastructure projects in {constituency}.</p>
+              <h2 className="text-base font-bold text-slate-900">Constituency Public Works</h2>
+              <p className="text-xs text-slate-500">Monitored infrastructure projects in {constituency}.</p>
             </div>
             <FolderGit2 className="w-5 h-5 text-slate-400" />
           </div>
@@ -408,9 +536,7 @@ export default function RepresentativeDashboard() {
             <EmptyState
               icon={FolderGit2}
               title="Public Projects Monitored"
-              description="Project tracking is planned for a later phase. No live project data is configured."
-              isFutureModule={true}
-              phase="Database Seed"
+              description="Development projects registered in this constituency will appear here."
             />
           )}
         </section>
@@ -420,7 +546,7 @@ export default function RepresentativeDashboard() {
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div>
               <h2 className="text-base font-bold text-slate-900">Official Bulletins</h2>
-              <p className="text-xs text-slate-500">Announcements you've published for {constituency}.</p>
+              <p className="text-xs text-slate-500">Announcements published for {constituency}.</p>
             </div>
             <button
               onClick={() => setAnnounceModalOpen(true)}
@@ -428,7 +554,7 @@ export default function RepresentativeDashboard() {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Draft Announcement</span>
+              <span>Draft Bulletin</span>
             </button>
           </div>
 
@@ -438,8 +564,8 @@ export default function RepresentativeDashboard() {
             <EmptyState
               icon={Bell}
               title="No Announcements Published Yet"
-              description="Publish your first official bulletin to broadcast notices, town hall schedules, and public works updates to your constituents."
-              actionLabel="Draft Announcement"
+              description="Publish official bulletins to broadcast town hall schedules, public works alerts, and municipal advisories to constituents."
+              actionLabel="Draft Bulletin"
               onAction={() => setAnnounceModalOpen(true)}
             />
           ) : (
@@ -469,33 +595,7 @@ export default function RepresentativeDashboard() {
         </section>
       </div>
 
-      {/* MODAL */}
-      <Modal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={activeModalFeature}
-        footer={
-          <button
-            onClick={() => setModalOpen(false)}
-            className="px-4 py-2 bg-slate-900 text-white text-xs font-semibold rounded-xl cursor-pointer"
-          >
-            Understood
-          </button>
-        }
-      >
-        <div className="space-y-3">
-          <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-blue-600 flex-shrink-0" />
-            <span className="font-semibold">Planned for Phase 2 Implementation</span>
-          </div>
-
-          <p className="text-xs text-slate-600 leading-relaxed">
-            The foundation for <strong>{activeModalFeature}</strong> is established with authoritative PostgreSQL roles, secure RLS, and foreign keys. Interactive actions and multi-step dialogs will be connected in Phase 2.
-          </p>
-        </div>
-      </Modal>
-
-      {/* Feature 3 — Update Complaint Status Modal */}
+      {/* Modals */}
       <UpdateComplaintModal
         isOpen={updateModalOpen}
         complaint={selectedComplaint}
@@ -503,11 +603,23 @@ export default function RepresentativeDashboard() {
         onUpdated={handleComplaintUpdated}
       />
 
-      {/* Feature 4 — Create Announcement Modal */}
+      <ComplaintDetailsModal
+        isOpen={!!detailsComplaint}
+        complaint={detailsComplaint}
+        onClose={() => setDetailsComplaint(null)}
+      />
+
       <CreateAnnouncementModal
         isOpen={announceModalOpen}
         onClose={() => setAnnounceModalOpen(false)}
         onCreated={handleAnnouncementCreated}
+        constituency={constituency}
+      />
+
+      <CreateSurveyModal
+        isOpen={surveyModalOpen}
+        onClose={() => setSurveyModalOpen(false)}
+        onCreated={() => {}}
         constituency={constituency}
       />
     </div>

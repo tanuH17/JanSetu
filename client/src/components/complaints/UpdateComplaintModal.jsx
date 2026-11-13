@@ -1,58 +1,149 @@
-import React, { useState } from 'react';
-import { X, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  X,
+  Loader2,
+  Upload,
+} from 'lucide-react';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { ROLES } from '../../lib/constants';
+import { useAuth } from '../../context/AuthContext';
 import StatusBadge from '../common/StatusBadge';
+import Alert from '../common/Alert';
 
-// Only the statuses a representative is permitted to set
-const REP_ALLOWED_STATUSES = [
-  { value: 'submitted',    label: 'Submitted' },
+const ALLOWED_STATUSES = [
+  { value: 'submitted', label: 'Submitted' },
   { value: 'under_review', label: 'Under Review' },
-  { value: 'in_progress',  label: 'In Progress' },
-  { value: 'resolved',     label: 'Resolved' },
-  { value: 'rejected',     label: 'Rejected' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'rejected', label: 'Rejected' },
 ];
 
-export default function UpdateComplaintModal({ isOpen, onClose, onUpdated, complaint }) {
-  const [status, setStatus]       = useState('');
-  const [notes, setNotes]         = useState('');
-  const [loading, setLoading]     = useState(false);
-  const [error, setError]         = useState(null);
-  const [success, setSuccess]     = useState(false);
+export default function UpdateComplaintModal({
+  isOpen,
+  onClose,
+  onUpdated,
+  complaint,
+}) {
+  const { user, profile } = useAuth();
+  const isRepresentative = profile?.role === ROLES.REPRESENTATIVE;
+  const isDepartment = profile?.role === ROLES.DEPARTMENT;
 
-  // Sync state when complaint changes (modal opened for a new complaint)
-  React.useEffect(() => {
-    if (complaint) {
-      setStatus(complaint.status || 'submitted');
-      setNotes(complaint.resolution_notes || '');
-      setError(null);
-      setSuccess(false);
+  const [status, setStatus] = useState(complaint?.status || 'submitted');
+  const [notes, setNotes] = useState(complaint?.resolution_notes || '');
+  const [departmentId, setDepartmentId] = useState(complaint?.department_id || '');
+  const [departments, setDepartments] = useState([]);
+  const [proofFile, setProofFile] = useState(null);
+  const [proofPreview, setProofPreview] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // Fetch departments list for representative routing
+  useEffect(() => {
+    let mounted = true;
+    async function loadDepts() {
+      if (!isSupabaseConfigured) return;
+      try {
+        const { data } = await supabase
+          .from('departments')
+          .select('id, name, code')
+          .order('name');
+        if (mounted && data) {
+          setDepartments(data);
+        }
+      } catch {
+        // Ignored
+      }
     }
-  }, [complaint]);
+    loadDepts();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   if (!isOpen || !complaint) return null;
+
+  const handleProofChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Proof photo size must be less than 5 MB.');
+      return;
+    }
+    setProofFile(file);
+    setProofPreview(URL.createObjectURL(file));
+  };
+
+  const removeProof = () => {
+    setProofFile(null);
+    if (proofPreview) URL.revokeObjectURL(proofPreview);
+    setProofPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
 
     if (!status) {
-      setError('Please select a status.');
+      setError('Please select a workflow status.');
       return;
     }
 
     if ((status === 'resolved' || status === 'rejected') && !notes.trim()) {
-      setError(`Resolution notes are required when marking a complaint as ${status}.`);
+      setError(`Resolution notes are required when setting status to ${status}.`);
       return;
     }
 
     setLoading(true);
     try {
+      let resolutionAttachmentUrl = complaint.resolution_attachment_url || null;
+
+      // Upload proof photo if department official provided one
+      if (proofFile && user) {
+        try {
+          const fileExt = proofFile.name.split('.').pop();
+          const filePath = `resolutions/${complaint.id}/${Date.now()}.${fileExt}`;
+          const { error: uploadError } = await supabase.storage
+            .from('complaint-attachments')
+            .upload(filePath, proofFile, { upsert: true });
+
+          if (!uploadError) {
+            const { data: urlData } = supabase.storage
+              .from('complaint-attachments')
+              .getPublicUrl(filePath);
+            resolutionAttachmentUrl = urlData?.publicUrl || null;
+          } else {
+            const reader = new FileReader();
+            resolutionAttachmentUrl = await new Promise((resolve) => {
+              reader.onload = (re) => resolve(re.target.result);
+              reader.readAsDataURL(proofFile);
+            });
+          }
+        } catch {
+          // Fallback ignored
+        }
+      }
+
+      const updatePayload = {
+        status,
+        resolution_notes: notes.trim() || null,
+      };
+
+      // Representatives can forward / assign department
+      if (isRepresentative) {
+        updatePayload.department_id = departmentId || null;
+      }
+
+      // Department officials can attach resolution evidence
+      if (isDepartment && resolutionAttachmentUrl) {
+        updatePayload.resolution_attachment_url = resolutionAttachmentUrl;
+      }
+
       const { data, error: updateError } = await supabase
         .from('complaints')
-        .update({
-          status,
-          resolution_notes: notes.trim() || null,
-        })
+        .update(updatePayload)
         .eq('id', complaint.id)
         .select('*, departments(name, code)')
         .single();
@@ -62,160 +153,202 @@ export default function UpdateComplaintModal({ isOpen, onClose, onUpdated, compl
       setSuccess(true);
       if (onUpdated) onUpdated(data);
 
-      // Auto-close after a short delay
       setTimeout(() => {
         setSuccess(false);
         onClose();
-      }, 1500);
+      }, 1200);
     } catch (err) {
-      setError(err.message || 'Failed to update complaint. Please try again.');
+      setError(err.message || 'Failed to update complaint status.');
     } finally {
       setLoading(false);
-    }
-  }
-
-  function handleClose() {
-    if (!loading) {
-      setError(null);
-      setSuccess(false);
-      onClose();
     }
   }
 
   return (
     <div
       className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !loading) onClose();
+      }}
     >
       <div
-        className="relative bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full animate-in fade-in zoom-in-95 duration-150"
+        className="relative bg-white rounded-3xl shadow-xl border border-slate-200 max-w-lg w-full p-6 animate-in fade-in zoom-in-95 duration-150"
         role="dialog"
         aria-modal="true"
         aria-labelledby="upd-modal-title"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 pb-4 border-b border-slate-100">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
           <div>
             <h3 id="upd-modal-title" className="text-base font-bold text-slate-900">
-              Update Complaint
+              {isRepresentative ? 'Review & Route Complaint' : 'Update Resolution Status'}
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5 line-clamp-1" title={complaint.title}>
-              {complaint.title}
+            <p className="text-xs text-slate-500 font-mono mt-0.5">
+              Ref: {complaint.tracking_id || complaint.id.slice(0, 8)}
             </p>
           </div>
           <button
-            onClick={handleClose}
+            onClick={onClose}
             disabled={loading}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
-            aria-label="Close"
+            className="p-1 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Success state */}
-        {success ? (
-          <div className="p-8 flex flex-col items-center gap-3 text-center">
-            <div className="w-14 h-14 rounded-full bg-emerald-50 flex items-center justify-center">
-              <CheckCircle2 className="w-7 h-7 text-emerald-500" />
-            </div>
-            <p className="text-sm font-semibold text-slate-900">Complaint updated successfully</p>
-            <p className="text-xs text-slate-500">The complaint status has been saved.</p>
+        {/* Complaint preview */}
+        <div className="mt-4 p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-xs text-slate-900 truncate max-w-[280px]">
+              {complaint.title}
+            </span>
+            <StatusBadge status={complaint.status} />
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} noValidate>
-            <div className="p-6 space-y-5">
+          <p className="text-[11px] text-slate-500 line-clamp-2">{complaint.description}</p>
+        </div>
 
-              {/* Current status */}
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <span>Current status:</span>
-                <StatusBadge status={complaint.status} />
-              </div>
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="mt-4 space-y-4" noValidate>
+          {error && <Alert type="error" message={error} onClose={() => setError(null)} />}
+          {success && (
+            <Alert
+              type="success"
+              message="Complaint updated successfully. Complainant notification sent."
+            />
+          )}
 
-              {/* Error */}
-              {error && (
-                <div className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <span>{error}</span>
+          {/* Status selector */}
+          <div className="space-y-1.5">
+            <label htmlFor="complaint-status-select" className="block text-xs font-semibold text-slate-700">
+              Workflow Status <span className="text-rose-500">*</span>
+            </label>
+            <select
+              id="complaint-status-select"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+            >
+              {ALLOWED_STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Representative Department Assignment / Forwarding */}
+          {isRepresentative && (
+            <div className="space-y-1.5">
+              <label htmlFor="dept-assignment-select" className="block text-xs font-semibold text-slate-700">
+                Forward / Assign to Department
+              </label>
+              <select
+                id="dept-assignment-select"
+                value={departmentId}
+                onChange={(e) => setDepartmentId(e.target.value)}
+                className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              >
+                <option value="">Unassigned / Triage</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} ({d.code})
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-slate-400">
+                Assigning routes the grievance into that department’s active resolution queue.
+              </p>
+            </div>
+          )}
+
+          {/* Resolution Notes */}
+          <div className="space-y-1.5">
+            <label htmlFor="complaint-notes" className="block text-xs font-semibold text-slate-700">
+              Official Remarks / Resolution Notes
+            </label>
+            <textarea
+              id="complaint-notes"
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Detail inspections completed, contractor assigned, or reason for resolution…"
+              className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Department Official Proof Upload */}
+          {isDepartment && (
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-700">
+                Attach Work Completion Photo (Proof)
+              </label>
+              {proofPreview ? (
+                <div className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-200 bg-slate-50">
+                  <img
+                    src={proofPreview}
+                    alt="Proof"
+                    className="w-12 h-12 object-cover rounded-lg border border-slate-200"
+                  />
+                  <div className="flex-1 min-w-0 text-xs">
+                    <p className="font-semibold text-slate-800 truncate">{proofFile?.name}</p>
+                    <p className="text-[10px] text-slate-400">Completion proof attached</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={removeProof}
+                    className="p-1 rounded text-rose-600 hover:bg-rose-50 cursor-pointer text-xs font-semibold"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-slate-300 hover:border-indigo-400 rounded-xl p-3 text-center cursor-pointer bg-slate-50/50 hover:bg-indigo-50/30 transition-colors"
+                >
+                  <Upload className="w-4 h-4 text-slate-400 mx-auto mb-1" />
+                  <p className="text-xs font-medium text-slate-600">
+                    Upload photo evidence of repair completion
+                  </p>
+                  <p className="text-[10px] text-slate-400">JPG, PNG up to 5MB</p>
                 </div>
               )}
-
-              {/* New Status */}
-              <div className="space-y-1.5">
-                <label htmlFor="upd-status" className="block text-xs font-semibold text-slate-700">
-                  New Status <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  id="upd-status"
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                  disabled={loading}
-                  className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60 cursor-pointer"
-                >
-                  {REP_ALLOWED_STATUSES.map((s) => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Resolution Notes */}
-              <div className="space-y-1.5">
-                <label htmlFor="upd-notes" className="block text-xs font-semibold text-slate-700">
-                  Resolution / Action Notes
-                  {(status === 'resolved' || status === 'rejected') && (
-                    <span className="text-rose-500 ml-1">*</span>
-                  )}
-                </label>
-                <textarea
-                  id="upd-notes"
-                  rows={4}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  disabled={loading}
-                  placeholder={
-                    status === 'resolved'
-                      ? 'Describe how the issue was resolved…'
-                      : status === 'rejected'
-                      ? 'Explain why the complaint is being rejected…'
-                      : 'Optional: Add a progress update or note…'
-                  }
-                  className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder-slate-400 disabled:opacity-60"
-                />
-                {(status === 'resolved' || status === 'rejected') && (
-                  <p className="text-[11px] text-slate-400">
-                    Notes are required when marking a complaint as {status}.
-                  </p>
-                )}
-              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png, image/jpeg, image/webp"
+                onChange={handleProofChange}
+                className="hidden"
+              />
             </div>
+          )}
 
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={handleClose}
-                disabled={loading}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors cursor-pointer disabled:opacity-60"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Saving…</span>
-                  </>
-                ) : (
-                  <span>Save Update</span>
-                )}
-              </button>
-            </div>
-          </form>
-        )}
+          {/* Footer actions */}
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Saving…</span>
+                </>
+              ) : (
+                <span>Save Status Update</span>
+              )}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

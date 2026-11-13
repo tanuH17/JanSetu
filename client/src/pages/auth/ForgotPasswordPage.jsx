@@ -26,12 +26,15 @@ export default function ForgotPasswordPage() {
 
     setLoading(true);
     try {
-      await requestPasswordReset(email);
-      // Account enumeration protection: always indicate success regardless of whether the email was registered
-      setSent(true);
-    } catch {
-      // Still show benign confirmation or non-revealing error
-      setSent(true);
+      const { error: resetError } = await requestPasswordReset(email);
+      if (resetError) {
+        // If Supabase returned a clear error like rate limit or network issue, surface it
+        setError(resetError.message || 'Unable to process password recovery request. Please try again.');
+      } else {
+        setSent(true);
+      }
+    } catch (err) {
+      setError(err.message || 'An unexpected error occurred while requesting password reset.');
     } finally {
       setLoading(false);
     }
@@ -41,7 +44,7 @@ export default function ForgotPasswordPage() {
     <div className="py-12 px-4 sm:px-6 lg:px-8">
       <AuthCard
         title="Account Recovery"
-        subtitle="Enter your registered email address and we'll send you a secure password reset link."
+        subtitle="Enter your registered email address and we will dispatch a secure password reset link."
         badgeText="Password Reset"
       >
         {sent ? (
@@ -57,16 +60,23 @@ export default function ForgotPasswordPage() {
             </p>
 
             <p className="text-[11px] text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-200">
-              Please check your spam or junk folder if the message does not appear in your primary inbox within 2 minutes.
+              Please check your spam or junk folder if the message does not appear in your primary inbox within 2 minutes. Click the link in the email to set a new password.
             </p>
 
-            <div className="pt-2">
+            <div className="pt-2 flex flex-col gap-2">
               <Link
                 to="/citizen/sign-in"
                 className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
               >
                 Return to Sign In
               </Link>
+              <button
+                type="button"
+                onClick={() => setSent(false)}
+                className="text-xs text-slate-500 hover:text-slate-800 underline cursor-pointer"
+              >
+                Send to a different email
+              </button>
             </div>
           </div>
         ) : (
@@ -75,7 +85,7 @@ export default function ForgotPasswordPage() {
 
             <div className="space-y-1.5">
               <label htmlFor="email" className="block text-sm font-medium text-slate-700">
-                Email Address <span className="text-rose-500">*</span>
+                Registered Email Address <span className="text-rose-500">*</span>
               </label>
               <div className="relative rounded-xl shadow-xs">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">

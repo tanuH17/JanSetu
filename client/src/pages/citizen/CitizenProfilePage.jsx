@@ -5,11 +5,25 @@ import { JURISDICTIONS, ROLES } from '../../lib/constants';
 import { validateFullName, validatePhoneNumber } from '../../lib/validation';
 import RoleBadge from '../../components/common/RoleBadge';
 import Alert from '../../components/common/Alert';
-import { User, Mail, Phone, MapPin, Shield, Loader2, Save } from 'lucide-react';
+import AvatarUploader from '../../components/profile/AvatarUploader';
+import ChangePasswordForm from '../../components/profile/ChangePasswordForm';
+import NotificationPreferencesForm from '../../components/profile/NotificationPreferencesForm';
+import AccountDeactivationModal from '../../components/profile/AccountDeactivationModal';
+import {
+  User,
+  Phone,
+  ShieldCheck,
+  KeyRound,
+  Bell,
+  Lock,
+  Save,
+  Loader2,
+} from 'lucide-react';
 
 export default function CitizenProfilePage() {
   const { user, profile, refreshProfile } = useAuth();
 
+  const [activeTab, setActiveTab] = useState('profile');
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [phone, setPhone] = useState(profile?.phone_number || '');
   const [state, setState] = useState(profile?.state || 'Uttar Pradesh');
@@ -20,6 +34,7 @@ export default function CitizenProfilePage() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [serverError, setServerError] = useState(null);
+  const [deactivateModalOpen, setDeactivateModalOpen] = useState(false);
 
   const selectedStateObj = JURISDICTIONS.find((j) => j.state === state) || JURISDICTIONS[0];
   const selectedDistrictObj =
@@ -53,17 +68,13 @@ export default function CitizenProfilePage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (e) => {
+  const handleProfileSubmit = async (e) => {
     e.preventDefault();
     setServerError(null);
     setSaveSuccess(false);
 
     if (!validate()) return;
-
-    if (!isSupabaseConfigured) {
-      setServerError('Supabase credentials are not configured yet.');
-      return;
-    }
+    if (!isSupabaseConfigured || !user) return;
 
     setSaving(true);
     try {
@@ -75,17 +86,14 @@ export default function CitizenProfilePage() {
           state,
           district,
           constituency,
-          // Notice: role is NEVER sent or editable here
         })
         .eq('id', user.id);
 
-      if (error) {
-        setServerError(error.message);
-      } else {
-        setSaveSuccess(true);
-        await refreshProfile();
-        setTimeout(() => setSaveSuccess(false), 3000);
-      }
+      if (error) throw error;
+
+      setSaveSuccess(true);
+      await refreshProfile();
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       setServerError(err.message || 'Failed to update profile information.');
     } finally {
@@ -94,11 +102,11 @@ export default function CitizenProfilePage() {
   };
 
   return (
-    <div className="max-w-3xl space-y-8">
+    <div className="max-w-4xl space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Citizen Profile &amp; Settings</h1>
         <p className="text-xs text-slate-500 mt-1">
-          Review your verified identity, registered constituency, and contact details.
+          Review your verified identity, registered assembly ward, and account security.
         </p>
       </div>
 
@@ -114,100 +122,131 @@ export default function CitizenProfilePage() {
         <Alert type="error" message={serverError} onClose={() => setServerError(null)} />
       )}
 
-      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs">
         {/* Account Identity Summary */}
-        <div className="flex items-center gap-4 pb-6 border-b border-slate-100">
-          <div className="w-14 h-14 rounded-2xl bg-blue-100 text-blue-700 font-extrabold text-xl flex items-center justify-center">
-            {(profile?.full_name || user?.email)?.[0]?.toUpperCase() || 'U'}
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold text-slate-900">{profile?.full_name || 'Citizen'}</h2>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 pb-6 border-b border-slate-100">
+          <AvatarUploader
+            currentAvatarUrl={profile?.avatar_url}
+            onAvatarUpdated={() => setSaveSuccess(true)}
+          />
+
+          <div className="space-y-1 sm:text-right">
+            <div className="flex sm:justify-end items-center gap-2">
               <RoleBadge role={profile?.role || ROLES.CITIZEN} />
+              {profile?.is_verified && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                  <ShieldCheck className="w-3.5 h-3.5" /> Verified Citizen
+                </span>
+              )}
             </div>
-            <p className="text-xs text-slate-500 font-mono mt-0.5">{user?.email}</p>
+            <p className="text-xs text-slate-500 font-mono">{user?.email}</p>
           </div>
         </div>
 
-        {/* Profile Update Form */}
-        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Full Name */}
-            <div className="space-y-1.5">
-              <label htmlFor="fullName" className="block text-xs font-semibold text-slate-700">
-                Full Name <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative rounded-xl shadow-xs">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <User className="w-4 h-4" />
+        {/* Tab Navigation */}
+        <div className="flex border-b border-slate-200 mt-6 gap-6 text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => setActiveTab('profile')}
+            className={`pb-3 cursor-pointer flex items-center gap-2 border-b-2 transition-colors ${
+              activeTab === 'profile'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <User className="w-4 h-4" /> Personal Profile
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('password')}
+            className={`pb-3 cursor-pointer flex items-center gap-2 border-b-2 transition-colors ${
+              activeTab === 'password'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <KeyRound className="w-4 h-4" /> Change Password
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('notifications')}
+            className={`pb-3 cursor-pointer flex items-center gap-2 border-b-2 transition-colors ${
+              activeTab === 'notifications'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Bell className="w-4 h-4" /> Notification Settings
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('security')}
+            className={`pb-3 cursor-pointer flex items-center gap-2 border-b-2 transition-colors ${
+              activeTab === 'security'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Lock className="w-4 h-4" /> Account &amp; Privacy
+          </button>
+        </div>
+
+        {/* Tab 1: Profile Details */}
+        {activeTab === 'profile' && (
+          <form onSubmit={handleProfileSubmit} className="mt-6 space-y-4" noValidate>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Full Name */}
+              <div className="space-y-1.5">
+                <label htmlFor="fullName" className="block text-xs font-semibold text-slate-700">
+                  Full Name <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative rounded-xl shadow-xs">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <User className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="fullName"
+                    type="text"
+                    required
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    className="block w-full pl-10 pr-3.5 py-2.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
-                <input
-                  id="fullName"
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="block w-full pl-10 pr-3.5 py-2.5 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-600"
-                />
+                {errors.fullName && <p className="text-[11px] text-rose-500">{errors.fullName}</p>}
               </div>
-              {errors.fullName && <p className="text-xs text-rose-600">{errors.fullName}</p>}
-            </div>
 
-            {/* Mobile Number */}
-            <div className="space-y-1.5">
-              <label htmlFor="phone" className="block text-xs font-semibold text-slate-700">
-                Mobile Number
-              </label>
-              <div className="relative rounded-xl shadow-xs">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Phone className="w-4 h-4" />
+              {/* Phone */}
+              <div className="space-y-1.5">
+                <label htmlFor="phone" className="block text-xs font-semibold text-slate-700">
+                  Phone Number
+                </label>
+                <div className="relative rounded-xl shadow-xs">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Phone className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="9876543210"
+                    className="block w-full pl-10 pr-3.5 py-2.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
-                <input
-                  id="phone"
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="9876543210"
-                  className="block w-full pl-10 pr-3.5 py-2.5 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-600"
-                />
+                {errors.phone && <p className="text-[11px] text-rose-500">{errors.phone}</p>}
               </div>
-              {errors.phone && <p className="text-xs text-rose-600">{errors.phone}</p>}
-            </div>
-          </div>
 
-          {/* Email (Read-only for security) */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-semibold text-slate-700">Registered Email Address</label>
-              <span className="text-[11px] text-slate-400">Managed via Supabase Auth</span>
-            </div>
-            <div className="relative rounded-xl shadow-xs">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                <Mail className="w-4 h-4" />
-              </div>
-              <input
-                type="email"
-                disabled
-                value={user?.email || ''}
-                className="block w-full pl-10 pr-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
-              />
-            </div>
-          </div>
-
-          {/* Jurisdiction Settings */}
-          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
-              <MapPin className="w-4 h-4 text-blue-600" />
-              <span>Assigned Assembly Constituency &amp; District</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">State</label>
+              {/* State */}
+              <div className="space-y-1.5">
+                <label htmlFor="state" className="block text-xs font-semibold text-slate-700">
+                  State
+                </label>
                 <select
+                  id="state"
                   value={state}
                   onChange={handleStateChange}
-                  className="w-full px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-slate-800"
+                  className="block w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {JURISDICTIONS.map((j) => (
                     <option key={j.state} value={j.state}>
@@ -217,12 +256,16 @@ export default function CitizenProfilePage() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">District</label>
+              {/* District */}
+              <div className="space-y-1.5">
+                <label htmlFor="district" className="block text-xs font-semibold text-slate-700">
+                  District
+                </label>
                 <select
+                  id="district"
                   value={district}
                   onChange={handleDistrictChange}
-                  className="w-full px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-slate-800"
+                  className="block w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {selectedStateObj.districts.map((d) => (
                     <option key={d.name} value={d.name}>
@@ -231,55 +274,117 @@ export default function CitizenProfilePage() {
                   ))}
                 </select>
               </div>
+
+              {/* Constituency */}
+              <div className="space-y-1.5 sm:col-span-2">
+                <label htmlFor="constituency" className="block text-xs font-semibold text-slate-700">
+                  Constituency / Assembly Ward
+                </label>
+                <select
+                  id="constituency"
+                  value={constituency}
+                  onChange={(e) => setConstituency(e.target.value)}
+                  className="block w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {selectedDistrictObj.constituencies.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                Constituency / Assembly Ward
-              </label>
-              <select
-                value={constituency}
-                onChange={(e) => setConstituency(e.target.value)}
-                className="w-full px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-slate-800 text-xs"
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={saving}
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
               >
-                {selectedDistrictObj?.constituencies?.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Saving Profile…</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Save Profile Information</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Tab 2: Change Password */}
+        {activeTab === 'password' && (
+          <div className="mt-6">
+            <h3 className="text-sm font-bold text-slate-900 mb-1">Update Password</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Change your password to keep your JanSetu resident account protected.
+            </p>
+            <ChangePasswordForm />
+          </div>
+        )}
+
+        {/* Tab 3: Notification Settings */}
+        {activeTab === 'notifications' && (
+          <div className="mt-6">
+            <h3 className="text-sm font-bold text-slate-900 mb-1">Notification Preferences</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Select which notifications you want to receive about your submitted grievances and locality alerts.
+            </p>
+            <NotificationPreferencesForm />
+          </div>
+        )}
+
+        {/* Tab 4: Account Security */}
+        {activeTab === 'security' && (
+          <div className="mt-6 space-y-6 max-w-lg">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 mb-1">Privacy &amp; Security</h3>
+              <p className="text-xs text-slate-500">
+                Your resident account is protected with PostgreSQL Row Level Security.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Account Type:</span>
+                <span className="font-semibold text-slate-800">Citizen Resident</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Registered Assembly:</span>
+                <span className="font-semibold text-slate-800">{constituency}, {district}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Grievance Privacy:</span>
+                <span className="font-semibold text-emerald-600">Restricted Complainant Data</span>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100">
+              <h4 className="text-xs font-bold text-slate-800 mb-1">Account Deactivation</h4>
+              <p className="text-[11px] text-slate-500 mb-3">
+                No longer living in this constituency or want to close your account?
+              </p>
+              <button
+                type="button"
+                onClick={() => setDeactivateModalOpen(true)}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 hover:bg-rose-100 transition-colors cursor-pointer"
+              >
+                Request Account Deactivation
+              </button>
             </div>
           </div>
-
-          {/* Security Information */}
-          <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 text-xs text-amber-900 flex items-start gap-2.5">
-            <Shield className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-            <p>
-              Your role is fixed to <strong>Citizen</strong>. Role modifications are guarded by database triggers and can only be altered by an authorized administrator in PostgreSQL.
-            </p>
-          </div>
-
-          <div className="pt-2">
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Saving Changes...</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-3.5 h-3.5" />
-                  <span>Update Profile</span>
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+        )}
       </div>
+
+      <AccountDeactivationModal
+        isOpen={deactivateModalOpen}
+        onClose={() => setDeactivateModalOpen(false)}
+      />
     </div>
   );
 }
