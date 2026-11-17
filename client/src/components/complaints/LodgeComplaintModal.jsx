@@ -13,6 +13,7 @@ import { useAuth } from '../../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { JURISDICTIONS, ROLES } from '../../lib/constants';
 import Alert from '../common/Alert';
+import { removePrivateMedia, uploadPrivateMedia, validateMediaFile } from '../../lib/media';
 
 // Civic complaint categories mapped to respective municipal department codes
 const COMPLAINT_CATEGORIES = [
@@ -46,10 +47,15 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
     district: profile?.district || distObj?.name || 'Lucknow',
     constituency: profile?.constituency || (distObj?.constituencies?.[0] ?? ''),
     landmark: '',
+    latitude: null,
+    longitude: null,
   });
 
   const [attachmentFile, setAttachmentFile] = useState(null);
   const [attachmentPreview, setAttachmentPreview] = useState(null);
+  const [attachmentType, setAttachmentType] = useState('image');
+  const [detectingLocation, setDetectingLocation] = useState(false);
+  const [locationNotice, setLocationNotice] = useState(null);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState(null);
@@ -97,12 +103,14 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      setErrors((prev) => ({ ...prev, attachment: 'Photo size cannot exceed 5 MB.' }));
+    const validationError = validateMediaFile(file, 'complaint');
+    if (validationError) {
+      setErrors((prev) => ({ ...prev, attachment: validationError }));
       return;
     }
 
     setAttachmentFile(file);
+    setAttachmentType(file.type.startsWith('video/') ? 'video' : 'image');
     const previewUrl = URL.createObjectURL(file);
     setAttachmentPreview(previewUrl);
     setErrors((prev) => ({ ...prev, attachment: null }));
@@ -112,7 +120,37 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
     setAttachmentFile(null);
     if (attachmentPreview) URL.revokeObjectURL(attachmentPreview);
     setAttachmentPreview(null);
+    setAttachmentType('image');
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleDetectLocation = () => {
+    if (!navigator.geolocation) {
+      setErrors((prev) => ({ ...prev, landmark: 'Geolocation is not supported by your browser.' }));
+      return;
+    }
+    setDetectingLocation(true);
+    setLocationNotice(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = parseFloat(pos.coords.latitude.toFixed(6));
+        const lng = parseFloat(pos.coords.longitude.toFixed(6));
+        setFormData((prev) => ({
+          ...prev,
+          latitude: lat,
+          longitude: lng,
+          landmark: prev.landmark || `GPS Location (${lat}, ${lng})`,
+        }));
+        setLocationNotice(`Exact GPS coordinates recorded: ${lat}, ${lng}`);
+        setDetectingLocation(false);
+      },
+      (err) => {
+        console.warn('Geolocation failed:', err.message);
+        setLocationNotice('Could not retrieve device GPS. Please specify landmark manually.');
+        setDetectingLocation(false);
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
   };
 
   const validate = () => {
@@ -177,58 +215,33 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
     }
 
     setSubmitting(true);
+    let uploadedAttachmentPath = null;
     try {
       // 1. Resolve department_id
       const selectedCat = COMPLAINT_CATEGORIES.find((c) => c.value === formData.category);
       let matchedDeptId = null;
 
       if (selectedCat?.deptCode) {
-        try {
-          const { data: deptRows } = await supabase
+          const { data: deptRows, error: deptError } = await supabase
             .from('departments')
             .select('id, code')
             .eq('code', selectedCat.deptCode)
             .maybeSingle();
-
-          if (deptRows?.id) {
-            matchedDeptId = deptRows.id;
-          }
-        } catch {
-          matchedDeptId = null;
-        }
+          if (deptError) throw deptError;
+          if (deptRows?.id) matchedDeptId = deptRows.id;
       }
 
-      // 2. Upload supporting image attachment if selected
-      let uploadedAttachmentUrl = null;
+      // 2. Upload evidence into a private bucket. The complaint row stores only its storage path.
+      const complaintId = crypto.randomUUID();
       if (attachmentFile) {
-        try {
-          const fileExt = attachmentFile.name.split('.').pop();
-          const filePath = `complaints/${user.id}/${Date.now()}.${fileExt}`;
-
-          const { error: uploadError } = await supabase.storage
-            .from('complaint-attachments')
-            .upload(filePath, attachmentFile, { upsert: true });
-
-          if (!uploadError) {
-            const { data: urlData } = supabase.storage
-              .from('complaint-attachments')
-              .getPublicUrl(filePath);
-            uploadedAttachmentUrl = urlData?.publicUrl || null;
-          } else {
-            // Graceful fallback to inline data URI if storage bucket not yet enabled
-            uploadedAttachmentUrl = await new Promise((resolve) => {
-              const reader = new FileReader();
-              reader.onload = (re) => resolve(re.target.result);
-              reader.readAsDataURL(attachmentFile);
-            });
-          }
-        } catch {
-          // Non-blocking attachment fallback
-        }
+        uploadedAttachmentPath = await uploadPrivateMedia(
+          'complaint-attachments', attachmentFile, 'complaint', `${user.id}/${complaintId}`
+        );
       }
 
       // 3. Insert complaint record
       const insertPayload = {
+        id: complaintId,
         citizen_id: user.id,
         title: formData.title.trim(),
         description: formData.description.trim(),
@@ -241,8 +254,13 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
         priority: 'medium',
       };
 
-      if (uploadedAttachmentUrl) {
-        insertPayload.attachment_url = uploadedAttachmentUrl;
+      if (uploadedAttachmentPath) {
+        insertPayload.attachment_url = uploadedAttachmentPath;
+      }
+
+      if (formData.latitude && formData.longitude) {
+        insertPayload.latitude = formData.latitude;
+        insertPayload.longitude = formData.longitude;
       }
 
       const { data, error } = await supabase
@@ -252,12 +270,21 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
         .single();
 
       if (error) throw error;
+      if (!data) throw new Error('The complaint was not returned by the database. Refresh and verify before retrying.');
+      const createdRecord = data;
 
-      setSubmittedData(data);
+      setSubmittedData(createdRecord);
       if (onSuccess && typeof onSuccess === 'function') {
-        onSuccess(data);
+        onSuccess(createdRecord);
       }
     } catch (err) {
+      if (uploadedAttachmentPath) {
+        try {
+          await removePrivateMedia('complaint-attachments', uploadedAttachmentPath);
+        } catch {
+          // Preserve the submission error; cleanup is best-effort.
+        }
+      }
       setServerError(err.message || 'An unexpected error occurred while submitting your complaint.');
     } finally {
       setSubmitting(false);
@@ -472,9 +499,20 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
 
             {/* Landmark */}
             <div className="space-y-1">
-              <label htmlFor="complaint-landmark" className="block text-xs font-semibold text-slate-700">
-                Specific Location / Landmark <span className="text-rose-500">*</span>
-              </label>
+              <div className="flex items-center justify-between">
+                <label htmlFor="complaint-landmark" className="block text-xs font-semibold text-slate-700">
+                  Specific Location / Landmark <span className="text-rose-500">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleDetectLocation}
+                  disabled={detectingLocation}
+                  className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <MapPin className="w-3 h-3" />
+                  <span>{detectingLocation ? 'Detecting GPS…' : 'Capture GPS Coordinates'}</span>
+                </button>
+              </div>
               <div className="relative rounded-xl shadow-xs">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                   <MapPin className="w-3.5 h-3.5" />
@@ -489,6 +527,9 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
                   className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+              {locationNotice && (
+                <p className="text-[11px] text-emerald-600 font-medium">{locationNotice}</p>
+              )}
               {errors.landmark && <p className="text-[11px] text-rose-500">{errors.landmark}</p>}
             </div>
 
@@ -509,22 +550,30 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
               {errors.description && <p className="text-[11px] text-rose-500">{errors.description}</p>}
             </div>
 
-            {/* Photo Attachment (Supabase Storage) */}
+            {/* Photo / Video Attachment (Supabase Storage) */}
             <div className="space-y-1">
               <label className="block text-xs font-semibold text-slate-700">
-                Supporting Photo Evidence (Optional)
+                Supporting Photo or Video Evidence (Optional)
               </label>
               {attachmentPreview ? (
                 <div className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-200 bg-slate-50">
-                  <img
-                    src={attachmentPreview}
-                    alt="Preview"
-                    className="w-12 h-12 object-cover rounded-lg border border-slate-200"
-                  />
+                  {attachmentType === 'video' ? (
+                    <video
+                      src={attachmentPreview}
+                      controls
+                      className="w-16 h-12 object-cover rounded-lg border border-slate-200 bg-black"
+                    />
+                  ) : (
+                    <img
+                      src={attachmentPreview}
+                      alt="Preview"
+                      className="w-12 h-12 object-cover rounded-lg border border-slate-200"
+                    />
+                  )}
                   <div className="flex-1 min-w-0 text-xs">
                     <p className="font-semibold text-slate-800 truncate">{attachmentFile?.name}</p>
                     <p className="text-[10px] text-slate-400">
-                      {(attachmentFile?.size / 1024).toFixed(0)} KB
+                      {attachmentType === 'video' ? 'Video' : 'Photo'} · {(attachmentFile?.size / 1024).toFixed(0)} KB
                     </p>
                   </div>
                   <button
@@ -542,15 +591,15 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
                 >
                   <Upload className="w-4 h-4 text-slate-400 mx-auto mb-1" />
                   <p className="text-xs font-medium text-slate-600">
-                    Click to attach a site photograph
+                    Click to attach site photograph or video
                   </p>
-                  <p className="text-[10px] text-slate-400">JPG, PNG up to 5MB</p>
+                  <p className="text-[10px] text-slate-400">JPG, PNG, WEBP up to 5MB · MP4, WEBM up to 20MB</p>
                 </div>
               )}
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/png, image/jpeg, image/webp"
+                accept="image/png, image/jpeg, image/webp, video/mp4, video/webm"
                 onChange={handleFileChange}
                 className="hidden"
               />

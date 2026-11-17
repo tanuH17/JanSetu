@@ -65,14 +65,16 @@ export default function CreateAnnouncementModal({ isOpen, onClose, onCreated, co
           target_constituency: constituency || null,
           is_pinned:          isPinned,
         })
-        .select()
+        .select('*')
         .single();
 
       if (insertError) throw insertError;
+      if (!data) throw new Error('The announcement was not returned by the database. Refresh and verify before retrying.');
+      const record = data;
 
-      setCreated(data);
+      setCreated(record);
       setSuccess(true);
-      if (onCreated) onCreated(data);
+      if (onCreated) onCreated(record);
     } catch (err) {
       setError(err.message || 'Failed to publish announcement. Please try again.');
     } finally {

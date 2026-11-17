@@ -9,6 +9,7 @@ import { ROLES } from '../../lib/constants';
 import { useAuth } from '../../context/AuthContext';
 import StatusBadge from '../common/StatusBadge';
 import Alert from '../common/Alert';
+import { removePrivateMedia, uploadPrivateMedia, validateMediaFile } from '../../lib/media';
 
 const ALLOWED_STATUSES = [
   { value: 'submitted', label: 'Submitted' },
@@ -28,16 +29,31 @@ export default function UpdateComplaintModal({
   const isRepresentative = profile?.role === ROLES.REPRESENTATIVE;
   const isDepartment = profile?.role === ROLES.DEPARTMENT;
 
+  const [prevComplaintId, setPrevComplaintId] = useState(complaint?.id);
   const [status, setStatus] = useState(complaint?.status || 'submitted');
   const [notes, setNotes] = useState(complaint?.resolution_notes || '');
   const [departmentId, setDepartmentId] = useState(complaint?.department_id || '');
   const [departments, setDepartments] = useState([]);
   const [proofFile, setProofFile] = useState(null);
   const [proofPreview, setProofPreview] = useState(null);
+  const [proofType, setProofType] = useState('image');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Synchronize state when complaint changes without cascading effect
+  if (complaint && complaint.id !== prevComplaintId) {
+    setPrevComplaintId(complaint.id);
+    setStatus(complaint.status || 'submitted');
+    setNotes(complaint.resolution_notes || '');
+    setDepartmentId(complaint.department_id || '');
+    setError(null);
+    setSuccess(false);
+    setProofFile(null);
+    setProofPreview(null);
+    setProofType('image');
+  }
 
   // Fetch departments list for representative routing
   useEffect(() => {
@@ -45,15 +61,18 @@ export default function UpdateComplaintModal({
     async function loadDepts() {
       if (!isSupabaseConfigured) return;
       try {
-        const { data } = await supabase
+        const { data, error: deptsError } = await supabase
           .from('departments')
           .select('id, name, code')
           .order('name');
-        if (mounted && data) {
+
+        if (deptsError) {
+          console.warn('Departments fetch warning:', deptsError);
+        } else if (mounted && Array.isArray(data) && data.length > 0) {
           setDepartments(data);
         }
-      } catch {
-        // Ignored
+      } catch (err) {
+        console.warn('Exception loading departments:', err);
       }
     }
     loadDepts();
@@ -67,18 +86,24 @@ export default function UpdateComplaintModal({
   const handleProofChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Proof photo size must be less than 5 MB.');
+
+    const validationError = validateMediaFile(file, 'complaint');
+    if (validationError) {
+      setError(validationError);
       return;
     }
+
     setProofFile(file);
+    setProofType(file.type.startsWith('video/') ? 'video' : 'image');
     setProofPreview(URL.createObjectURL(file));
+    setError(null);
   };
 
   const removeProof = () => {
     setProofFile(null);
     if (proofPreview) URL.revokeObjectURL(proofPreview);
     setProofPreview(null);
+    setProofType('image');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -97,33 +122,16 @@ export default function UpdateComplaintModal({
     }
 
     setLoading(true);
+    let uploadedProofPath = null;
     try {
       let resolutionAttachmentUrl = complaint.resolution_attachment_url || null;
 
-      // Upload proof photo if department official provided one
+      // Upload proof photo/video if department official provided one
       if (proofFile && user) {
-        try {
-          const fileExt = proofFile.name.split('.').pop();
-          const filePath = `resolutions/${complaint.id}/${Date.now()}.${fileExt}`;
-          const { error: uploadError } = await supabase.storage
-            .from('complaint-attachments')
-            .upload(filePath, proofFile, { upsert: true });
-
-          if (!uploadError) {
-            const { data: urlData } = supabase.storage
-              .from('complaint-attachments')
-              .getPublicUrl(filePath);
-            resolutionAttachmentUrl = urlData?.publicUrl || null;
-          } else {
-            const reader = new FileReader();
-            resolutionAttachmentUrl = await new Promise((resolve) => {
-              reader.onload = (re) => resolve(re.target.result);
-              reader.readAsDataURL(proofFile);
-            });
-          }
-        } catch {
-          // Fallback ignored
-        }
+        uploadedProofPath = await uploadPrivateMedia(
+          'complaint-attachments', proofFile, 'complaint', `${user.id}/${complaint.id}`
+        );
+        resolutionAttachmentUrl = uploadedProofPath;
       }
 
       const updatePayload = {
@@ -149,15 +157,24 @@ export default function UpdateComplaintModal({
         .single();
 
       if (updateError) throw updateError;
+      if (!data) throw new Error('The update was not returned by the database. Refresh and verify before retrying.');
+      const finalRecord = data;
 
       setSuccess(true);
-      if (onUpdated) onUpdated(data);
+      if (onUpdated) onUpdated(finalRecord);
 
       setTimeout(() => {
         setSuccess(false);
         onClose();
       }, 1200);
     } catch (err) {
+      if (uploadedProofPath) {
+        try {
+          await removePrivateMedia('complaint-attachments', uploadedProofPath);
+        } catch {
+          // Preserve the update failure; cleanup is best-effort.
+        }
+      }
       setError(err.message || 'Failed to update complaint status.');
     } finally {
       setLoading(false);
@@ -280,18 +297,28 @@ export default function UpdateComplaintModal({
           {isDepartment && (
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-700">
-                Attach Work Completion Photo (Proof)
+                Attach Work Completion Evidence (Photo / Video Proof)
               </label>
               {proofPreview ? (
                 <div className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-200 bg-slate-50">
-                  <img
-                    src={proofPreview}
-                    alt="Proof"
-                    className="w-12 h-12 object-cover rounded-lg border border-slate-200"
-                  />
+                  {proofType === 'video' ? (
+                    <video
+                      src={proofPreview}
+                      className="w-16 h-12 object-cover rounded-lg border border-slate-200 bg-black"
+                      controls
+                    />
+                  ) : (
+                    <img
+                      src={proofPreview}
+                      alt="Proof"
+                      className="w-12 h-12 object-cover rounded-lg border border-slate-200"
+                    />
+                  )}
                   <div className="flex-1 min-w-0 text-xs">
                     <p className="font-semibold text-slate-800 truncate">{proofFile?.name}</p>
-                    <p className="text-[10px] text-slate-400">Completion proof attached</p>
+                    <p className="text-[10px] text-slate-400">
+                      {proofType === 'video' ? 'Video evidence attached' : 'Photo proof attached'}
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -308,15 +335,15 @@ export default function UpdateComplaintModal({
                 >
                   <Upload className="w-4 h-4 text-slate-400 mx-auto mb-1" />
                   <p className="text-xs font-medium text-slate-600">
-                    Upload photo evidence of repair completion
+                    Upload photo or video evidence of repair completion
                   </p>
-                  <p className="text-[10px] text-slate-400">JPG, PNG up to 5MB</p>
+                  <p className="text-[10px] text-slate-400">JPG, PNG, WEBP, MP4 up to 20MB</p>
                 </div>
               )}
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/png, image/jpeg, image/webp"
+                accept="image/png, image/jpeg, image/webp, video/mp4, video/webm"
                 onChange={handleProofChange}
                 className="hidden"
               />

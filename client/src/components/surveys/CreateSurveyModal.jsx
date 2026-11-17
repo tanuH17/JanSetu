@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import Alert from '../common/Alert';
 
 export default function CreateSurveyModal({ isOpen, onClose, onCreated, constituency }) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [options, setOptions] = useState(['', '']);
@@ -61,7 +61,7 @@ export default function CreateSurveyModal({ isOpen, onClose, onCreated, constitu
         .insert([
           {
             author_id: user.id,
-            constituency: constituency || 'Lucknow Central',
+            constituency: constituency || profile?.constituency,
             title: title.trim(),
             description: description.trim() || null,
             options: optionsPayload,
@@ -72,8 +72,10 @@ export default function CreateSurveyModal({ isOpen, onClose, onCreated, constitu
         .single();
 
       if (insertError) throw insertError;
+      if (!data) throw new Error('The survey was not returned by the database. Refresh and verify before retrying.');
+      const record = data;
 
-      if (onCreated) onCreated(data);
+      if (onCreated) onCreated(record);
       onClose();
     } catch (err) {
       setError(err.message || 'Failed to publish survey.');

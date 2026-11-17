@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   X,
   Copy,
@@ -13,6 +13,7 @@ import {
   Image,
 } from 'lucide-react';
 import StatusBadge from '../common/StatusBadge';
+import { resolvePrivateMediaUrl } from '../../lib/media';
 
 // Status timeline definition — in display order
 const TIMELINE_STEPS = [
@@ -100,12 +101,34 @@ function InfoRow({ icon: Icon, label, value }) {
   );
 }
 
+function isVideoUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  return url.endsWith('.mp4') || url.endsWith('.webm') || url.includes('video/') || url.includes('.mp4?') || url.includes('.webm?');
+}
+
 export default function ComplaintDetailsModal({ isOpen, onClose, complaint }) {
   const [copied, setCopied] = useState(false);
+  const [mediaViews, setMediaViews] = useState({ key: '', attachment: null, resolution: null });
+  const mediaKey = `${complaint?.id || ''}:${complaint?.attachment_url || ''}:${complaint?.resolution_attachment_url || ''}`;
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      resolvePrivateMediaUrl('complaint-attachments', complaint?.attachment_url).catch(() => null),
+      resolvePrivateMediaUrl('complaint-attachments', complaint?.resolution_attachment_url).catch(() => null),
+    ]).then(([attachment, resolution]) => {
+      if (active) {
+        setMediaViews({ key: mediaKey, attachment, resolution });
+      }
+    });
+    return () => { active = false; };
+  }, [complaint?.id, complaint?.attachment_url, complaint?.resolution_attachment_url, mediaKey]);
 
   if (!isOpen || !complaint) return null;
 
   const isRejected = complaint.status === 'rejected';
+  const attachmentViewUrl = mediaViews.key === mediaKey ? mediaViews.attachment : null;
+  const resolutionViewUrl = mediaViews.key === mediaKey ? mediaViews.resolution : null;
   const currentStepIndex = STATUS_STEP_INDEX[complaint.status] ?? 0;
 
   const handleCopyTrackingId = async () => {
@@ -201,23 +224,31 @@ export default function ComplaintDetailsModal({ isOpen, onClose, complaint }) {
             </p>
           </div>
 
-          {/* Supporting Evidence Image if Present */}
-          {complaint.attachment_url && (
+          {/* Supporting Evidence Image/Video if Present */}
+          {complaint.attachment_url && attachmentViewUrl && (
             <div className="space-y-2">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Image className="w-3.5 h-3.5 text-blue-500" /> Supporting Photo Evidence
+                <Image className="w-3.5 h-3.5 text-blue-500" /> Supporting Evidence ({isVideoUrl(complaint.attachment_url) ? 'Video' : 'Photo'})
               </h4>
               <div className="rounded-2xl border border-slate-200 overflow-hidden bg-slate-100 max-h-56">
-                <a href={complaint.attachment_url} target="_blank" rel="noopener noreferrer" className="block relative group">
-                  <img
-                    src={complaint.attachment_url}
-                    alt="Supporting attachment"
-                    className="w-full h-48 object-cover group-hover:opacity-90 transition-opacity"
+                {isVideoUrl(complaint.attachment_url) ? (
+                  <video
+                    src={attachmentViewUrl}
+                    controls
+                    className="w-full h-48 object-cover bg-black"
                   />
-                  <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-semibold gap-1.5 transition-opacity">
-                    <ExternalLink className="w-4 h-4" /> Open Full Image
-                  </div>
-                </a>
+                ) : (
+                  <a href={attachmentViewUrl} target="_blank" rel="noopener noreferrer" className="block relative group">
+                    <img
+                      src={attachmentViewUrl}
+                      alt="Supporting attachment"
+                      className="w-full h-48 object-cover group-hover:opacity-90 transition-opacity"
+                    />
+                    <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-semibold gap-1.5 transition-opacity">
+                      <ExternalLink className="w-4 h-4" /> Open Full Image
+                    </div>
+                  </a>
+                )}
               </div>
             </div>
           )}
@@ -240,22 +271,30 @@ export default function ComplaintDetailsModal({ isOpen, onClose, complaint }) {
           )}
 
           {/* Resolution Evidence Uploaded by Department */}
-          {complaint.resolution_attachment_url && (
+          {complaint.resolution_attachment_url && resolutionViewUrl && (
             <div className="space-y-2">
               <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Work Completion Proof
+                <CheckCircle2 className="w-3.5 h-3.5" /> Work Completion Proof ({isVideoUrl(complaint.resolution_attachment_url) ? 'Video' : 'Photo'})
               </h4>
               <div className="rounded-2xl border border-emerald-200 overflow-hidden bg-slate-100 max-h-56">
-                <a href={complaint.resolution_attachment_url} target="_blank" rel="noopener noreferrer" className="block relative group">
-                  <img
-                    src={complaint.resolution_attachment_url}
-                    alt="Work completion proof"
-                    className="w-full h-48 object-cover group-hover:opacity-90 transition-opacity"
+                {isVideoUrl(complaint.resolution_attachment_url) ? (
+                  <video
+                    src={resolutionViewUrl}
+                    controls
+                    className="w-full h-48 object-cover bg-black"
                   />
-                  <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-semibold gap-1.5 transition-opacity">
-                    <ExternalLink className="w-4 h-4" /> View Completion Proof
-                  </div>
-                </a>
+                ) : (
+                  <a href={resolutionViewUrl} target="_blank" rel="noopener noreferrer" className="block relative group">
+                    <img
+                      src={resolutionViewUrl}
+                      alt="Work completion proof"
+                      className="w-full h-48 object-cover group-hover:opacity-90 transition-opacity"
+                    />
+                    <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-semibold gap-1.5 transition-opacity">
+                      <ExternalLink className="w-4 h-4" /> View Completion Proof
+                    </div>
+                  </a>
+                )}
               </div>
             </div>
           )}

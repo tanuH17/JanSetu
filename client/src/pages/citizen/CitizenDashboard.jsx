@@ -11,6 +11,8 @@ import LodgeComplaintModal from '../../components/complaints/LodgeComplaintModal
 import ComplaintDetailsModal from '../../components/complaints/ComplaintDetailsModal';
 import SurveyPollWidget from '../../components/surveys/SurveyPollWidget';
 import SchemesModal from '../../components/common/SchemesModal';
+import EmergencyAssistanceModal from '../../components/emergency/EmergencyAssistanceModal';
+import ConstituencyHeatmap from '../../components/analytics/ConstituencyHeatmap';
 import {
   FileText,
   PlusCircle,
@@ -24,6 +26,7 @@ import {
   ThumbsUp,
   BookOpen,
   Users,
+  ShieldAlert,
 } from 'lucide-react';
 
 export default function CitizenDashboard() {
@@ -37,6 +40,7 @@ export default function CitizenDashboard() {
   const [dataError, setDataError] = useState(null);
 
   const [lodgeModalOpen, setLodgeModalOpen] = useState(false);
+  const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
   const [selectedComplaint, setSelectedComplaint] = useState(null);
   const [schemesModalOpen, setSchemesModalOpen] = useState(false);
 
@@ -45,8 +49,8 @@ export default function CitizenDashboard() {
   };
 
   const citizenName = profile?.full_name || user?.email?.split('@')[0] || 'Citizen';
-  const constituency = profile?.constituency || 'Lucknow Central';
-  const district = profile?.district || 'Lucknow';
+  const constituency = profile?.constituency || '';
+  const district = profile?.district || '';
 
   // Load database data
   useEffect(() => {
@@ -68,36 +72,23 @@ export default function CitizenDashboard() {
         if (complaintsError) throw complaintsError;
 
         // 2. Fetch community complaints in their constituency/district
-        const { data: commData } = await supabase
-          .from('complaints')
-          .select('*, departments(name, code)')
-          .or(`constituency.eq.${constituency},district.eq.${district}`)
+        const { data: commData, error: communityError } = await supabase
+          .from('public_complaint_feed')
+          .select('*')
           .order('created_at', { ascending: false })
           .limit(10);
+        if (communityError) throw communityError;
 
         // 3. Fetch upvote counts for community complaints
         if (commData && commData.length > 0) {
           const ids = commData.map((c) => c.id);
-          const { data: upvoteRows } = await supabase
-            .from('complaint_upvotes')
-            .select('complaint_id, citizen_id')
-            .in('complaint_id', ids);
-
           const upvoteMap = {};
           ids.forEach((id) => {
             upvoteMap[id] = { count: 0, userVoted: false };
           });
-
-          if (upvoteRows) {
-            upvoteRows.forEach((row) => {
-              if (upvoteMap[row.complaint_id]) {
-                upvoteMap[row.complaint_id].count += 1;
-                if (row.citizen_id === user.id) {
-                  upvoteMap[row.complaint_id].userVoted = true;
-                }
-              }
-            });
-          }
+          const { data: voteCounts, error: voteError } = await supabase.rpc('get_complaint_upvote_counts', { p_complaint_ids: ids });
+          if (voteError) throw voteError;
+          (voteCounts || []).forEach((row) => { upvoteMap[row.complaint_id] = { count: Number(row.vote_count), userVoted: row.viewer_has_voted }; });
           if (mounted) {
             setUpvotes(upvoteMap);
             setCommunityComplaints(commData);
@@ -147,25 +138,20 @@ export default function CitizenDashboard() {
 
     if (current.userVoted) {
       // Remove upvote
-      setUpvotes((prev) => ({
-        ...prev,
-        [complaintId]: { count: Math.max(0, current.count - 1), userVoted: false },
-      }));
-      await supabase
+      const { error } = await supabase
         .from('complaint_upvotes')
         .delete()
         .eq('complaint_id', complaintId)
         .eq('citizen_id', user.id);
+      if (error) { setDataError('Your support could not be removed. Please try again.'); return; }
     } else {
       // Add upvote
-      setUpvotes((prev) => ({
-        ...prev,
-        [complaintId]: { count: current.count + 1, userVoted: true },
-      }));
-      await supabase
+      const { error } = await supabase
         .from('complaint_upvotes')
         .insert([{ complaint_id: complaintId, citizen_id: user.id }]);
+      if (error) { setDataError('Your support could not be saved. Please try again.'); return; }
     }
+    setUpvotes((prev) => ({ ...prev, [complaintId]: { count: Math.max(0, current.count + (current.userVoted ? -1 : 1)), userVoted: !current.userVoted } }));
   };
 
   // Metrics
@@ -245,11 +231,11 @@ export default function CitizenDashboard() {
       </div>
 
       {/* 3. Quick Action Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <button
           onClick={() => setLodgeModalOpen(true)}
           type="button"
-          className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-blue-300 hover:shadow-md transition-all text-left flex items-start gap-4 group cursor-pointer"
+          className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-blue-300 hover:shadow-md transition-all text-left flex items-start gap-3.5 group cursor-pointer"
         >
           <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
             <PlusCircle className="w-5 h-5" />
@@ -265,26 +251,44 @@ export default function CitizenDashboard() {
         </button>
 
         <button
+          onClick={() => setEmergencyModalOpen(true)}
+          type="button"
+          className="p-5 rounded-2xl bg-white border border-rose-200 hover:border-rose-300 hover:shadow-md transition-all text-left flex items-start gap-3.5 group cursor-pointer"
+        >
+          <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0 group-hover:bg-rose-600 group-hover:text-white transition-colors">
+            <ShieldAlert className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900 group-hover:text-rose-600 transition-colors">
+              Emergency &amp; Hazard Desk
+            </h3>
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+              112, 1090 helplines and immediate alert dispatch for live electric wires or cave-ins.
+            </p>
+          </div>
+        </button>
+
+        <button
           onClick={() => setSchemesModalOpen(true)}
           type="button"
-          className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-emerald-300 hover:shadow-md transition-all text-left flex items-start gap-4 group cursor-pointer"
+          className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-emerald-300 hover:shadow-md transition-all text-left flex items-start gap-3.5 group cursor-pointer"
         >
           <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
             <BookOpen className="w-5 h-5" />
           </div>
           <div>
             <h3 className="text-sm font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">
-              Welfare Schemes &amp; Services
+              Welfare Schemes
             </h3>
             <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              Explore national and state welfare schemes (PMAY, Ayushman Bharat, Har Ghar Jal, PM-Surya).
+              Explore national and state welfare schemes (PMAY, Ayushman Bharat, Har Ghar Jal).
             </p>
           </div>
         </button>
 
         <Link
           to="/citizen/profile"
-          className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-purple-300 hover:shadow-md transition-all text-left flex items-start gap-4 group cursor-pointer"
+          className="p-5 rounded-2xl bg-white border border-slate-200/80 hover:border-purple-300 hover:shadow-md transition-all text-left flex items-start gap-3.5 group cursor-pointer"
         >
           <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center flex-shrink-0 group-hover:bg-purple-600 group-hover:text-white transition-colors">
             <User className="w-5 h-5" />
@@ -427,6 +431,16 @@ export default function CitizenDashboard() {
         )}
       </section>
 
+      {/* 5.5. Constituency Geographical Heatmap */}
+      <section id="ward-heatmap-section">
+        <ConstituencyHeatmap
+          complaints={communityComplaints.length > 0 ? communityComplaints : complaints}
+          constituency={constituency}
+          privacyPrecision={3}
+          onSelectComplaint={(c) => setSelectedComplaint(c)}
+        />
+      </section>
+
       {/* 6. Surveys & Polls Section */}
       <section id="surveys-section" className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -536,6 +550,12 @@ export default function CitizenDashboard() {
       <SchemesModal
         isOpen={schemesModalOpen}
         onClose={() => setSchemesModalOpen(false)}
+      />
+
+      <EmergencyAssistanceModal
+        isOpen={emergencyModalOpen}
+        onClose={() => setEmergencyModalOpen(false)}
+        onHazardReported={(ticket) => setComplaints((prev) => [ticket, ...prev])}
       />
     </div>
   );

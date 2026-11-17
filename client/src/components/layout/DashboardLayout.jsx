@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { ROLES, ROLE_CONFIG } from '../../lib/constants';
 import RoleBadge from '../common/RoleBadge';
 import SupabaseSetupNotice from '../common/SupabaseSetupNotice';
 import NotificationBell from '../notifications/NotificationBell';
+import { resolvePrivateMediaUrl } from '../../lib/media';
 import {
   LayoutDashboard,
   FileText,
@@ -23,8 +24,19 @@ import {
 export default function DashboardLayout() {
   const { user, profile, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [avatarView, setAvatarView] = useState({ source: null, url: null });
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let active = true;
+    if (!profile?.avatar_url) return () => { active = false; };
+    resolvePrivateMediaUrl('avatars', profile.avatar_url)
+      .then((url) => { if (active) setAvatarView({ source: profile.avatar_url, url }); })
+      .catch(() => { if (active) setAvatarView({ source: profile.avatar_url, url: null }); });
+    return () => { active = false; };
+  }, [profile?.avatar_url]);
+  const avatarUrl = avatarView.source === profile?.avatar_url ? avatarView.url : null;
 
   const userRole = profile?.role;
   const config = ROLE_CONFIG[userRole] || ROLE_CONFIG[ROLES.CITIZEN];
@@ -98,9 +110,9 @@ export default function DashboardLayout() {
           <div className="p-4 mx-3 my-3 rounded-2xl bg-slate-50 border border-slate-200/80">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-sm overflow-hidden flex-shrink-0">
-                {profile?.avatar_url ? (
+                {avatarUrl ? (
                   <img
-                    src={profile.avatar_url}
+                    src={avatarUrl}
                     alt={profile.full_name || 'Profile'}
                     className="w-full h-full object-cover"
                   />
@@ -207,9 +219,9 @@ export default function DashboardLayout() {
 
               <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-sm overflow-hidden flex-shrink-0">
-                  {profile?.avatar_url ? (
+                  {avatarUrl ? (
                     <img
-                      src={profile.avatar_url}
+                      src={avatarUrl}
                       alt="Avatar"
                       className="w-full h-full object-cover"
                     />

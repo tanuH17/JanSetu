@@ -10,8 +10,11 @@ import Alert from '../../components/common/Alert';
 import UpdateComplaintModal from '../../components/complaints/UpdateComplaintModal';
 import CreateAnnouncementModal from '../../components/announcements/CreateAnnouncementModal';
 import CreateSurveyModal from '../../components/surveys/CreateSurveyModal';
+import CreateProjectModal from '../../components/projects/CreateProjectModal';
 import SurveyPollWidget from '../../components/surveys/SurveyPollWidget';
 import ComplaintDetailsModal from '../../components/complaints/ComplaintDetailsModal';
+import ConstituencyHeatmap from '../../components/analytics/ConstituencyHeatmap';
+import AnalyticsReportsCard from '../../components/analytics/AnalyticsReportsCard';
 import {
   Shield,
   FileText,
@@ -53,6 +56,7 @@ export default function RepresentativeDashboard() {
   const [detailsComplaint, setDetailsComplaint] = useState(null);
   const [announceModalOpen, setAnnounceModalOpen] = useState(false);
   const [surveyModalOpen, setSurveyModalOpen] = useState(false);
+  const [projectModalOpen, setProjectModalOpen] = useState(false);
 
   const repName = profile?.full_name || 'Elected Representative';
   const designation = profile?.designation || 'Authorized Representative';
@@ -81,20 +85,13 @@ export default function RepresentativeDashboard() {
         // Fetch upvotes for constituency complaints
         if (complaintsData && complaintsData.length > 0) {
           const ids = complaintsData.map((c) => c.id);
-          const { data: upvoteRows } = await supabase
-            .from('complaint_upvotes')
-            .select('complaint_id')
-            .in('complaint_id', ids);
-
           const upvoteMap = {};
           ids.forEach((id) => {
             upvoteMap[id] = 0;
           });
-          if (upvoteRows) {
-            upvoteRows.forEach((row) => {
-              upvoteMap[row.complaint_id] = (upvoteMap[row.complaint_id] || 0) + 1;
-            });
-          }
+          const { data: voteCounts, error: voteError } = await supabase.rpc('get_complaint_upvote_counts', { p_complaint_ids: ids });
+          if (voteError) throw voteError;
+          (voteCounts || []).forEach((row) => { upvoteMap[row.complaint_id] = Number(row.vote_count); });
           if (mounted) setUpvotes(upvoteMap);
         }
 
@@ -438,6 +435,15 @@ export default function RepresentativeDashboard() {
         )}
       </section>
 
+      {/* 3.5. Interactive Constituency Heatmap */}
+      <section id="constituency-heatmap-section">
+        <ConstituencyHeatmap
+          complaints={complaints}
+          constituency={constituency}
+          onSelectComplaint={(c) => setDetailsComplaint(c)}
+        />
+      </section>
+
       {/* 4. Community Concerns & Consensus Surveys */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top Supported Issues */}
@@ -514,7 +520,14 @@ export default function RepresentativeDashboard() {
               <h2 className="text-base font-bold text-slate-900">Constituency Public Works</h2>
               <p className="text-xs text-slate-500">Monitored infrastructure projects in {constituency}.</p>
             </div>
-            <FolderGit2 className="w-5 h-5 text-slate-400" />
+            <button
+              onClick={() => setProjectModalOpen(true)}
+              type="button"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Register Project</span>
+            </button>
           </div>
 
           {projects.length > 0 ? (
@@ -537,6 +550,8 @@ export default function RepresentativeDashboard() {
               icon={FolderGit2}
               title="Public Projects Monitored"
               description="Development projects registered in this constituency will appear here."
+              actionLabel="Register Project"
+              onAction={() => setProjectModalOpen(true)}
             />
           )}
         </section>
@@ -595,6 +610,16 @@ export default function RepresentativeDashboard() {
         </section>
       </div>
 
+      {/* 6. Constituency Civic Analytics & Export */}
+      <section id="analytics-section">
+        <AnalyticsReportsCard
+          complaints={complaints}
+          projects={projects}
+          title={`Civic Grievance Analytics & Reports — ${constituency}`}
+          subtitle="Constituency-wide resolution rates, category distributions, and CSV export."
+        />
+      </section>
+
       {/* Modals */}
       <UpdateComplaintModal
         isOpen={updateModalOpen}
@@ -621,6 +646,14 @@ export default function RepresentativeDashboard() {
         onClose={() => setSurveyModalOpen(false)}
         onCreated={() => {}}
         constituency={constituency}
+      />
+
+      <CreateProjectModal
+        isOpen={projectModalOpen}
+        onClose={() => setProjectModalOpen(false)}
+        onCreated={(newP) => setProjects((prev) => [newP, ...prev])}
+        constituency={constituency}
+        district={district}
       />
     </div>
   );

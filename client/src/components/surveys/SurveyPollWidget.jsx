@@ -11,6 +11,7 @@ export default function SurveyPollWidget({ constituency, onOpenCreateModal }) {
   const [voteCounts, setVoteCounts] = useState({}); // { survey_id: { option_index: count, total: count } }
   const [loading, setLoading] = useState(true);
   const [votingId, setVotingId] = useState(null);
+  const [error, setError] = useState('');
 
   const isCitizen = profile?.role === ROLES.CITIZEN;
   const isRepresentative = profile?.role === ROLES.REPRESENTATIVE;
@@ -52,35 +53,25 @@ export default function SurveyPollWidget({ constituency, onOpenCreateModal }) {
         const surveyIds = surveysData.map((s) => s.id);
 
         // 2. Fetch all votes for these surveys to aggregate counts
-        const { data: votesData, error: vErr } = await supabase
-          .from('survey_votes')
-          .select('survey_id, citizen_id, selected_option_index')
-          .in('survey_id', surveyIds);
-
-        if (!vErr && votesData) {
-          const counts = {};
-          const myVotes = {};
-
-          votesData.forEach((vote) => {
-            if (!counts[vote.survey_id]) {
-              counts[vote.survey_id] = { total: 0 };
-            }
-            counts[vote.survey_id][vote.selected_option_index] =
-              (counts[vote.survey_id][vote.selected_option_index] || 0) + 1;
-            counts[vote.survey_id].total += 1;
-
-            if (user && vote.citizen_id === user.id) {
-              myVotes[vote.survey_id] = vote.selected_option_index;
-            }
-          });
-
-          if (mounted) {
-            setVoteCounts(counts);
-            setUserVotes(myVotes);
-          }
+        const [{ data: countsData, error: countsError }, { data: ownVotes, error: ownError }] = await Promise.all([
+          supabase.rpc('get_survey_vote_counts', { p_survey_ids: surveyIds }),
+          supabase.from('survey_votes').select('survey_id, selected_option_index').in('survey_id', surveyIds),
+        ]);
+        if (countsError) throw countsError;
+        if (ownError) throw ownError;
+        const counts = {};
+        (countsData || []).forEach((vote) => {
+          if (!counts[vote.survey_id]) counts[vote.survey_id] = { total: 0 };
+          counts[vote.survey_id][vote.selected_option_index] = Number(vote.vote_count);
+          counts[vote.survey_id].total += Number(vote.vote_count);
+        });
+        const myVotes = Object.fromEntries((ownVotes || []).map((vote) => [vote.survey_id, vote.selected_option_index]));
+        if (mounted) {
+          setVoteCounts(counts);
+          setUserVotes(myVotes);
         }
       } catch {
-        // Safe fallback
+        if (mounted) setError('Poll results could not be loaded. Please refresh to try again.');
       } finally {
         if (mounted) setLoading(false);
       }
@@ -120,7 +111,7 @@ export default function SurveyPollWidget({ constituency, onOpenCreateModal }) {
         });
       }
     } catch {
-      // Ignored
+      setError('Your vote could not be saved. Please try again.');
     } finally {
       setVotingId(null);
     }
@@ -129,6 +120,8 @@ export default function SurveyPollWidget({ constituency, onOpenCreateModal }) {
   if (loading) {
     return <p className="text-xs text-slate-400 py-4">Loading active community polls…</p>;
   }
+
+  if (error) return <p role="alert" className="py-3 text-xs text-rose-700">{error}</p>;
 
   if (surveys.length === 0) {
     return (

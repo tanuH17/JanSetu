@@ -42,6 +42,17 @@ export const COMPLAINT_STATUSES = {
   REJECTED: { label: 'Rejected', color: 'bg-rose-50 text-rose-700 border-rose-200' },
 };
 
+export const COMPLAINT_CATEGORIES = [
+  { value: 'Roads & Footpaths', label: 'Roads & Footpaths' },
+  { value: 'Water Supply & Drainage', label: 'Water Supply & Drainage' },
+  { value: 'Sanitation & Waste Management', label: 'Sanitation & Waste Management' },
+  { value: 'Electricity & Street Lighting', label: 'Electricity & Street Lighting' },
+  { value: 'Public Health & Hygiene', label: 'Public Health & Hygiene' },
+  { value: 'Education & School Infrastructure', label: 'Education & School Infrastructure' },
+  { value: 'Disaster & Hazard', label: 'Urgent Public Safety Hazard' },
+  { value: 'Other Civic Grievance', label: 'Other Civic Grievance' },
+];
+
 export const COMPLAINT_PRIORITIES = {
   LOW: { label: 'Low', color: 'bg-slate-100 text-slate-700' },
   MEDIUM: { label: 'Medium', color: 'bg-blue-100 text-blue-700' },

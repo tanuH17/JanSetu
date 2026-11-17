@@ -9,6 +9,8 @@ import EmptyState from '../../components/common/EmptyState';
 import Alert from '../../components/common/Alert';
 import UpdateComplaintModal from '../../components/complaints/UpdateComplaintModal';
 import ComplaintDetailsModal from '../../components/complaints/ComplaintDetailsModal';
+import ConstituencyHeatmap from '../../components/analytics/ConstituencyHeatmap';
+import AnalyticsReportsCard from '../../components/analytics/AnalyticsReportsCard';
 import {
   Building2,
   FileText,
@@ -373,6 +375,15 @@ export default function DepartmentDashboard() {
         )}
       </section>
 
+      {/* 3.5. Department Territorial Heatmap */}
+      <section id="department-heatmap-section">
+        <ConstituencyHeatmap
+          complaints={complaints}
+          constituency={district}
+          onSelectComplaint={(c) => setDetailsComplaint(c)}
+        />
+      </section>
+
       {/* 4. Resolution History & Public Works */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Resolution Audit Trail */}
@@ -454,6 +465,16 @@ export default function DepartmentDashboard() {
           )}
         </section>
       </div>
+
+      {/* 5. Department Operational Analytics & Reporting */}
+      <section id="department-analytics-section">
+        <AnalyticsReportsCard
+          complaints={complaints}
+          projects={projects}
+          title={`Department Operational Analytics — ${departmentName}`}
+          subtitle={`Ticket throughput, urgent hazards, and CSV export for ${departmentCode} division.`}
+        />
+      </section>
 
       {/* Modals */}
       <UpdateComplaintModal
