@@ -127,7 +127,10 @@ export default function CitizenProfilePage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 pb-6 border-b border-slate-100">
           <AvatarUploader
             currentAvatarUrl={profile?.avatar_url}
-            onAvatarUpdated={() => setSaveSuccess(true)}
+            onAvatarUpdated={() => {
+              setSaveSuccess(true);
+              setTimeout(() => setSaveSuccess(false), 3000);
+            }}
           />
 
           <div className="space-y-1 sm:text-right">

@@ -299,6 +299,23 @@ export default function DashboardLayout() {
 
               <RoleBadge role={userRole} />
 
+              {/* Profile Avatar Quick Link in Top Header */}
+              <Link
+                to={config?.profilePath || '/department/profile'}
+                className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-xs overflow-hidden flex-shrink-0 hover:ring-2 hover:ring-blue-500 transition-all border border-slate-200"
+                title="View Profile & Settings"
+              >
+                {profile?.avatar_url ? (
+                  <img
+                    src={profile.avatar_url}
+                    alt={profile.full_name || 'Profile'}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  (profile?.full_name || user?.email)?.[0]?.toUpperCase() || 'U'
+                )}
+              </Link>
+
               <button
                 onClick={handleSignOut}
                 type="button"

@@ -173,32 +173,46 @@ export default function RepresentativeDashboard() {
       {/* 1. Profile & Jurisdiction Banner */}
       <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-md relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div className="max-w-2xl space-y-3">
-            <div className="flex items-center gap-2">
-              <RoleBadge role={ROLES.REPRESENTATIVE} className="bg-white/10 text-white border-white/20" />
-              <span className="text-xs text-blue-200">Legislative Oversight Portal</span>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-5">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white/10 border-2 border-white/20 overflow-hidden flex items-center justify-center text-white flex-shrink-0 shadow-sm backdrop-blur-xs">
+              {profile?.avatar_url ? (
+                <img
+                  src={profile.avatar_url}
+                  alt={repName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <User className="w-8 h-8 sm:w-10 sm:h-10 text-blue-200" />
+              )}
             </div>
 
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              {repName}
-            </h1>
-
-            <p className="text-xs sm:text-sm text-blue-200 font-medium">{designation}</p>
-
-            <p className="text-xs text-slate-300 leading-relaxed pt-1">
-              Official constituency oversight workdesk. Monitor civic grievances, assign departments, publish official bulletins, and poll constituents in {constituency}.
-            </p>
-
-            <div className="pt-2 flex flex-wrap items-center gap-3 text-xs text-blue-200">
-              <div className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-xl backdrop-blur-xs">
-                <MapPin className="w-3.5 h-3.5 text-blue-300" />
-                <span>
-                  Authorized Ward: <strong>{constituency}</strong> ({district})
-                </span>
+            <div className="max-w-2xl space-y-2">
+              <div className="flex items-center gap-2">
+                <RoleBadge role={ROLES.REPRESENTATIVE} className="bg-white/10 text-white border-white/20" />
+                <span className="text-xs text-blue-200">Legislative Oversight Portal</span>
               </div>
-              <div className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-xl backdrop-blur-xs">
-                <Shield className="w-3.5 h-3.5 text-emerald-300" />
-                <span>Administrative RLS Verified</span>
+
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+                {repName}
+              </h1>
+
+              <p className="text-xs sm:text-sm text-blue-200 font-medium">{designation}</p>
+
+              <p className="text-xs text-slate-300 leading-relaxed pt-1">
+                Official constituency oversight workdesk. Monitor civic grievances, assign departments, publish official bulletins, and poll constituents in {constituency}.
+              </p>
+
+              <div className="pt-2 flex flex-wrap items-center gap-3 text-xs text-blue-200">
+                <div className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-xl backdrop-blur-xs">
+                  <MapPin className="w-3.5 h-3.5 text-blue-300" />
+                  <span>
+                    Authorized Ward: <strong>{constituency}</strong> ({district})
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-xl backdrop-blur-xs">
+                  <Shield className="w-3.5 h-3.5 text-emerald-300" />
+                  <span>Administrative RLS Verified</span>
+                </div>
               </div>
             </div>
           </div>

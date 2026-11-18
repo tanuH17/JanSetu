@@ -16,6 +16,9 @@ const PROFILE_SELECT = `
   department_id,
   designation,
   bio,
+  avatar_url,
+  preferences,
+  deactivation_requested,
   is_verified,
   created_at,
   updated_at,
@@ -27,11 +30,57 @@ const PROFILE_SELECT = `
   )
 `;
 
+export function getAvatarStoragePath(urlOrPath) {
+  if (!urlOrPath || typeof urlOrPath !== 'string') return null;
+  if (urlOrPath.startsWith('data:')) return null;
+
+  // Extract path from public or signed Supabase storage URL
+  const match = urlOrPath.match(/\/storage\/v1\/object\/(?:public|sign)\/avatars\/([^?#]+)/);
+  if (match) {
+    return decodeURIComponent(match[1]);
+  }
+
+  // If it's already a relative storage path (e.g. "userId/timestamp.png")
+  if (!urlOrPath.startsWith('http://') && !urlOrPath.startsWith('https://')) {
+    return urlOrPath.replace(/^avatars\//, '');
+  }
+
+  return null;
+}
+
+export async function resolveAvatarUrl(avatarUrl) {
+  if (!avatarUrl || typeof avatarUrl !== 'string') return avatarUrl;
+  if (avatarUrl.startsWith('data:')) return avatarUrl;
+
+  const storagePath = getAvatarStoragePath(avatarUrl);
+  if (!storagePath || !isSupabaseConfigured) return avatarUrl;
+
+  try {
+    // If the storage bucket is private, a signed URL is required to view the image
+    const { data, error } = await supabase.storage
+      .from('avatars')
+      .createSignedUrl(storagePath, 60 * 60 * 24 * 7); // 7 days
+
+    if (!error && data?.signedUrl) {
+      return data.signedUrl;
+    }
+  } catch (err) {
+    console.warn('Could not create signed URL for avatar:', err);
+  }
+
+  return avatarUrl;
+}
+
 async function loadProfile(userId, attempts = 3) {
   let lastError = null;
   for (let i = 0; i < attempts; i += 1) {
     const { data, error } = await supabase.from('profiles').select(PROFILE_SELECT).eq('id', userId).maybeSingle();
-    if (!error && data) return data;
+    if (!error && data) {
+      if (data.avatar_url) {
+        data.avatar_url = await resolveAvatarUrl(data.avatar_url);
+      }
+      return data;
+    }
     lastError = error;
     await new Promise((resolve) => setTimeout(resolve, 400 * (i + 1)));
   }

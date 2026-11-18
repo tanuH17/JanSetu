@@ -165,31 +165,45 @@ export default function CitizenDashboard() {
 
       {/* 1. Welcome Header */}
       <div className="bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 rounded-3xl p-6 sm:p-8 text-white shadow-md relative overflow-hidden">
-        <div className="max-w-2xl space-y-3 relative z-10">
-          <div className="flex items-center gap-2">
-            <RoleBadge role={ROLES.CITIZEN} className="bg-white/10 text-white border-white/20" />
-            <span className="text-xs text-blue-200">Resident Citizen Dashboard</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-            Namaste, {citizenName}
-          </h1>
-          <p className="text-xs sm:text-sm text-blue-100 leading-relaxed">
-            Welcome to your JanSetu civic workspace. Report localized community concerns, upvote urgent neighborhood issues, participate in polls, and track resolution timelines.
-          </p>
-
-          <div className="pt-2 flex flex-wrap items-center gap-3 text-xs text-blue-200">
-            <div className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-xl backdrop-blur-xs">
-              <MapPin className="w-3.5 h-3.5 text-blue-300" />
-              <span>
-                {constituency}, {district}
-              </span>
-            </div>
-            {profile?.is_verified && (
-              <div className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-xl">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" aria-hidden="true" />
-                <span>Verified account</span>
-              </div>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-5 relative z-10">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white/10 border-2 border-white/20 overflow-hidden flex items-center justify-center text-white flex-shrink-0 shadow-sm backdrop-blur-xs">
+            {profile?.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt={citizenName}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <User className="w-8 h-8 sm:w-10 sm:h-10 text-blue-200" />
             )}
+          </div>
+
+          <div className="max-w-2xl space-y-2">
+            <div className="flex items-center gap-2">
+              <RoleBadge role={ROLES.CITIZEN} className="bg-white/10 text-white border-white/20" />
+              <span className="text-xs text-blue-200">Resident Citizen Dashboard</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              Namaste, {citizenName}
+            </h1>
+            <p className="text-xs sm:text-sm text-blue-100 leading-relaxed">
+              Welcome to your JanSetu civic workspace. Report localized community concerns, upvote urgent neighborhood issues, participate in polls, and track resolution timelines.
+            </p>
+
+            <div className="pt-2 flex flex-wrap items-center gap-3 text-xs text-blue-200">
+              <div className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-xl backdrop-blur-xs">
+                <MapPin className="w-3.5 h-3.5 text-blue-300" />
+                <span>
+                  {constituency}, {district}
+                </span>
+              </div>
+              {profile?.is_verified && (
+                <div className="flex items-center gap-1 bg-white/10 px-3 py-1.5 rounded-xl">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" aria-hidden="true" />
+                  <span>Verified account</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
