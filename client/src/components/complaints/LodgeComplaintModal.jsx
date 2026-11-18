@@ -8,8 +8,11 @@ import {
   MapPin,
   FileText,
   Upload,
+  Navigation,
+  Map,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';import { useAuth } from '../../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { JURISDICTIONS, ROLES } from '../../lib/constants';
 import Alert from '../common/Alert';
@@ -63,6 +66,12 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
   const [copied, setCopied] = useState(false);
   const fileInputRef = useRef(null);
 
+  // Location picker map state
+  const [showPickerMap, setShowPickerMap] = useState(false);
+  const pickerMapRef = useRef(null);
+  const pickerMapInstanceRef = useRef(null);
+  const pickerMarkerRef = useRef(null);
+
   // Handle ESC key to close modal
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -77,6 +86,74 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isOpen, onClose, submitting]);
+
+  // Initialize/destroy location picker map
+  useEffect(() => {
+    if (!showPickerMap || !pickerMapRef.current) return;
+
+    // Determine initial center from existing coordinates or constituency center
+    const defaultLat = formData.latitude || 20.5937;
+    const defaultLng = formData.longitude || 78.9629;
+
+    if (!pickerMapInstanceRef.current) {
+      const map = L.map(pickerMapRef.current, {
+        center: [defaultLat, defaultLng],
+        zoom: formData.latitude ? 15 : 12,
+        zoomControl: true,
+        attributionControl: false,
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+      }).addTo(map);
+
+      // Create a draggable marker at current/default position
+      const marker = L.marker([defaultLat, defaultLng], { draggable: true }).addTo(map);
+      marker.bindPopup('Drag me to the exact complaint location').openPopup();
+
+      marker.on('dragend', () => {
+        const { lat, lng } = marker.getLatLng();
+        const roundedLat = parseFloat(lat.toFixed(6));
+        const roundedLng = parseFloat(lng.toFixed(6));
+        setFormData((prev) => ({
+          ...prev,
+          latitude: roundedLat,
+          longitude: roundedLng,
+          landmark: prev.landmark || `Selected location (${roundedLat}, ${roundedLng})`,
+        }));
+        setLocationNotice(`Location set: ${roundedLat}, ${roundedLng}`);
+      });
+
+      map.on('click', (e) => {
+        const { lat, lng } = e.latlng;
+        const roundedLat = parseFloat(lat.toFixed(6));
+        const roundedLng = parseFloat(lng.toFixed(6));
+        marker.setLatLng([roundedLat, roundedLng]);
+        setFormData((prev) => ({
+          ...prev,
+          latitude: roundedLat,
+          longitude: roundedLng,
+          landmark: prev.landmark || `Selected location (${roundedLat}, ${roundedLng})`,
+        }));
+        setLocationNotice(`Location set: ${roundedLat}, ${roundedLng}`);
+      });
+
+      pickerMarkerRef.current = marker;
+      pickerMapInstanceRef.current = map;
+
+      // Fix Leaflet sizing after the div becomes visible
+      setTimeout(() => map.invalidateSize(), 100);
+    }
+
+    return () => {
+      if (pickerMapInstanceRef.current) {
+        pickerMapInstanceRef.current.remove();
+        pickerMapInstanceRef.current = null;
+        pickerMarkerRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPickerMap]);
 
   if (!isOpen) return null;
 
@@ -308,6 +385,8 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
     setServerError(null);
     setErrors({});
     removeAttachment();
+    setShowPickerMap(false);
+    setLocationNotice(null);
     setFormData((prev) => ({
       title: '',
       description: '',
@@ -315,6 +394,8 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
       district: prev.district,
       constituency: prev.constituency,
       landmark: '',
+      latitude: null,
+      longitude: null,
     }));
   };
 
@@ -503,15 +584,26 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
                 <label htmlFor="complaint-landmark" className="block text-xs font-semibold text-slate-700">
                   Specific Location / Landmark <span className="text-rose-500">*</span>
                 </label>
-                <button
-                  type="button"
-                  onClick={handleDetectLocation}
-                  disabled={detectingLocation}
-                  className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1 cursor-pointer"
-                >
-                  <MapPin className="w-3 h-3" />
-                  <span>{detectingLocation ? 'Detecting GPS…' : 'Capture GPS Coordinates'}</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDetectLocation}
+                    disabled={detectingLocation}
+                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  >
+                    <Navigation className="w-3 h-3" />
+                    <span>{detectingLocation ? 'Detecting GPS…' : 'Use GPS'}</span>
+                  </button>
+                  <span className="text-slate-300 text-xs">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowPickerMap((v) => !v)}
+                    className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-800 inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Map className="w-3 h-3" />
+                    <span>{showPickerMap ? 'Hide Map' : 'Pick on Map'}</span>
+                  </button>
+                </div>
               </div>
               <div className="relative rounded-xl shadow-xs">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
@@ -527,6 +619,23 @@ export default function LodgeComplaintModal({ isOpen, onClose, onSuccess }) {
                   className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+
+              {/* Interactive map picker */}
+              {showPickerMap && (
+                <div className="mt-2 rounded-xl overflow-hidden border border-slate-200 shadow-xs">
+                  <div className="px-2.5 py-1.5 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <MapPin className="w-3 h-3 text-blue-500" />
+                    <span>Click on the map or drag the marker to set the exact complaint location.</span>
+                  </div>
+                  <div ref={pickerMapRef} style={{ height: '220px', width: '100%' }} />
+                  {formData.latitude && formData.longitude && (
+                    <div className="px-2.5 py-1.5 bg-emerald-50 border-t border-emerald-100 text-[11px] text-emerald-700 font-mono">
+                      📍 {formData.latitude}, {formData.longitude}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {locationNotice && (
                 <p className="text-[11px] text-emerald-600 font-medium">{locationNotice}</p>
               )}

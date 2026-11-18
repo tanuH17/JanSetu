@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet.heat';
 import { Filter, MapPin, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { COMPLAINT_CATEGORIES, COMPLAINT_STATUSES } from '../../lib/constants';
 
@@ -126,34 +127,30 @@ export default function ConstituencyHeatmap({
 
     layerGroup.clearLayers();
 
-    mappedPoints.forEach((point) => {
-      const color = getPriorityColor(point.priority);
+    if (viewMode === 'density') {
+      // Build heatmap points: [lat, lng, intensity]
+      const heatPoints = mappedPoints.map((point) => {
+        const intensity =
+          point.priority === 'urgent' ? 1.0
+          : point.priority === 'high' ? 0.7
+          : point.priority === 'medium' ? 0.4
+          : 0.2;
+        return [point.computedLat, point.computedLng, intensity];
+      });
 
-      if (viewMode === 'density') {
-        // Render density circles
-        const circle = L.circle([point.computedLat, point.computedLng], {
-          radius: point.priority === 'urgent' ? 350 : point.priority === 'high' ? 250 : 180,
-          fillColor: color,
-          color: color,
-          weight: 1.5,
-          opacity: 0.8,
-          fillOpacity: 0.35,
+      if (heatPoints.length > 0) {
+        const heatLayer = L.heatLayer(heatPoints, {
+          radius: 28,
+          blur: 18,
+          maxZoom: 17,
+          max: 1.0,
+          gradient: { 0.2: '#38bdf8', 0.4: '#a3e635', 0.65: '#fbbf24', 1.0: '#e11d48' },
         });
-
-        const tooltip = document.createElement('div');
-        const tooltipTitle = document.createElement('strong');
-        tooltipTitle.textContent = point.title || point.tracking_id || 'Public complaint';
-        const tooltipDetails = document.createElement('div');
-        tooltipDetails.textContent = `Priority: ${point.priority || 'unassigned'} · Status: ${point.status || 'unknown'}`;
-        tooltip.append(tooltipTitle, tooltipDetails);
-        circle.bindTooltip(tooltip, { direction: 'top', className: 'text-xs' });
-
-        circle.on('click', () => {
-          if (onSelectComplaint) onSelectComplaint(point);
-        });
-
-        layerGroup.addLayer(circle);
-      } else {
+        layerGroup.addLayer(heatLayer);
+      }
+    } else {
+      mappedPoints.forEach((point) => {
+        const color = getPriorityColor(point.priority);
         // Render custom styled pin markers
         const customIcon = L.divIcon({
           className: 'custom-leaflet-marker',
@@ -205,8 +202,8 @@ export default function ConstituencyHeatmap({
 
         marker.bindPopup(popupContent, { maxWidth: 260 });
         layerGroup.addLayer(marker);
-      }
-    });
+      });
+    }
   }, [mappedPoints, viewMode, onSelectComplaint]);
 
   const handleZoomIn = () => mapInstanceRef.current?.zoomIn();
@@ -337,22 +334,33 @@ export default function ConstituencyHeatmap({
 
         {/* Legend */}
         <div className="absolute bottom-3 left-3 z-10 bg-white/95 backdrop-blur-xs px-3 py-2 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-600" />
-            <span>Urgent</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-orange-600" />
-            <span>High</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-sky-600" />
-            <span>Medium</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-slate-500" />
-            <span>Low</span>
-          </div>
+          {viewMode === 'density' ? (
+            <>
+              <div className="flex items-center gap-1.5">
+                <span className="w-16 h-2.5 rounded-full" style={{ background: 'linear-gradient(to right, #38bdf8, #a3e635, #fbbf24, #e11d48)' }} />
+              </div>
+              <span className="text-slate-500">Low → High Density</span>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-600" />
+                <span>Urgent</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-orange-600" />
+                <span>High</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-600" />
+                <span>Medium</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-500" />
+                <span>Low</span>
+              </div>
+            </>
+          )}
           <span className="text-slate-300">|</span>
           <span className="font-semibold text-slate-800">{mappedPoints.length} Issues Mapped</span>
         </div>
