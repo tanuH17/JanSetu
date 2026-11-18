@@ -43,7 +43,7 @@ export default function LandingPage() {
     {
       question: 'How are complaints tracked from submission to resolution?',
       answer:
-        'Complaint intake and tracking are planned for a later phase. The current version provides account access and role-specific dashboard foundations, but does not yet accept or process complaints.',
+        'Signed-in citizens can submit complaints and track their status from the citizen dashboard. Authorized representatives and department officials can review and update complaints within their assigned scope. These workflows require a configured Supabase project.',
     },
     {
       question: 'What regions are currently covered in this pilot version?',
@@ -69,9 +69,8 @@ export default function LandingPage() {
           </h1>
 
           <p className="text-base sm:text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-            JanSetu is a developing platform intended to make public-service communication clearer.
-            Its first version establishes secure accounts and role-specific workspaces; complaint
-            reporting, project tracking, and public updates are planned for later phases.
+            JanSetu brings citizen complaint reporting, status tracking, public updates, and role-specific
+            workspaces into one college-project platform. Supabase must be configured before data features are available.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
@@ -97,7 +96,7 @@ export default function LandingPage() {
               <div className="text-blue-600 font-bold text-sm mb-1 flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4" /> Tracked
               </div>
-              <p className="text-xs text-slate-500">Complaint tracking is planned for a later phase.</p>
+              <p className="text-xs text-slate-500">Citizens can submit complaints and follow their status from the dashboard.</p>
             </div>
             <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs">
               <div className="text-emerald-600 font-bold text-sm mb-1 flex items-center gap-1.5">
@@ -109,7 +108,7 @@ export default function LandingPage() {
               <div className="text-indigo-600 font-bold text-sm mb-1 flex items-center gap-1.5">
                 <Building2 className="w-4 h-4" /> Multi-Dept
               </div>
-              <p className="text-xs text-slate-500">Department workspaces are planned for future service workflows.</p>
+              <p className="text-xs text-slate-500">Authorized department officials can review assigned complaints and report progress.</p>
             </div>
             <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs">
               <div className="text-amber-600 font-bold text-sm mb-1 flex items-center gap-1.5">
@@ -137,9 +136,9 @@ export default function LandingPage() {
               teams a shared, clearer view of those workflows.
             </p>
             <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
-              <strong>JanSetu</strong> currently provides secure sign-in, citizen profiles, and separate dashboard
-              foundations for citizens, representatives, and department officials. The complaint and project
-              workflows remain future work; this project is not connected to government services.
+              <strong>JanSetu</strong> provides sign-in, citizen profiles, and separate dashboards for citizens,
+              representatives, and department officials, including complaint and civic information workflows.
+              Supabase must be configured to store and retrieve live project data; this is not a government service.
             </p>
           </div>
         </div>
@@ -164,7 +163,7 @@ export default function LandingPage() {
             </div>
             <h3 className="text-lg font-bold text-slate-900 mb-2">Transparent Complaint Tracking</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Complaint submission and status tracking are planned for a later phase.
+              Citizens can submit issues and follow updates through a tracking reference in their dashboard.
             </p>
           </div>
 
@@ -174,7 +173,7 @@ export default function LandingPage() {
             </div>
             <h3 className="text-lg font-bold text-slate-900 mb-2">Representative Oversight</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Authorized representative accounts receive a dashboard foundation; complaint oversight and announcements are not active yet.
+              Authorized representatives can review constituency complaints and publish announcements.
             </p>
           </div>
 
@@ -184,7 +183,7 @@ export default function LandingPage() {
             </div>
             <h3 className="text-lg font-bold text-slate-900 mb-2">Departmental Workdesks</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Authorized department accounts receive a dashboard foundation; assignment and resolution tools are not active yet.
+              Authorized department officials can update assigned complaint status and resolution notes.
             </p>
           </div>
 
@@ -228,7 +227,7 @@ export default function LandingPage() {
             The Complaint-to-Resolution Lifecycle
           </p>
             <p className="text-sm text-slate-500">
-            This example shows the workflow planned for a later phase; complaint handling is not active yet.
+            Complaints move through these steps in the configured application. Access depends on the signed-in user's role and assigned scope.
           </p>
         </div>
 
@@ -242,7 +241,7 @@ export default function LandingPage() {
               Resident submits description, location landmark, category, and department routing.
             </p>
             <span className="inline-block text-[10px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
-              Planned: Submit
+              Citizen submission
             </span>
           </div>
 
@@ -255,7 +254,7 @@ export default function LandingPage() {
               Responsible municipal wing reviews jurisdiction, verifies field requirements, and assigns field inspectors.
             </p>
             <span className="inline-block text-[10px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded">
-              Planned: Review
+              Department review
             </span>
           </div>
 
@@ -268,7 +267,7 @@ export default function LandingPage() {
               Field work commences. The constituency representative monitors deadline adherence.
             </p>
             <span className="inline-block text-[10px] font-semibold text-sky-700 bg-sky-50 px-2 py-0.5 rounded">
-              Planned: Track
+              Representative oversight
             </span>
           </div>
 
@@ -281,7 +280,7 @@ export default function LandingPage() {
               Official records resolution summary. Citizen inspects the outcome and provides civic feedback.
             </p>
             <span className="inline-block text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-              Planned: Close
+              Resolution update
             </span>
           </div>
         </div>

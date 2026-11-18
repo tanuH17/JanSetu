@@ -72,7 +72,7 @@ export default function SupabaseSetupNotice() {
             </div>
 
             <p className="pt-1 text-[11px] text-amber-800">
-              4. Open the <strong>SQL Editor</strong> and apply the three migrations in order from <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">JanSetu/supabase/migrations/</code>. The complete order is in the setup guide.
+              4. Open the <strong>SQL Editor</strong> and apply all five migrations in order, then run <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">JanSetu/supabase/storage_setup.sql</code>. The complete order is in the setup guide.
             </p>
           </div>
         )}

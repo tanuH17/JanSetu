@@ -12,7 +12,26 @@
 
 ## Run on your computer
 
+<<<<<<< Updated upstream
 Open PowerShell in this repository folder (the folder containing this README), then run:
+=======
+## Current capabilities
+
+- Responsive public landing, about, contact, privacy, and terms pages.
+- Citizen sign-up and sign-in; separate representative and department sign-in portals for administrator-provisioned accounts.
+- Email confirmation callback, forgot password, password reset, persistent session restore, and logout.
+- Role checks read the protected profile record; choosing a portal does not grant a role.
+- Citizen profile management and role-specific dashboards.
+- Complaint submission with optional image attachment, tracking references, complaint details, community upvotes, and workflow tools for authorized representatives and department officials.
+- Dashboard views for announcements, schemes, polls, public projects, and notifications, backed by Supabase when configured.
+- PostgreSQL schema, RLS policies, role assignments, department reference data, and storage policies.
+
+These features require a Supabase project configured with the migrations and storage setup below. JanSetu is a college application and is not connected to live government services. There is no separate general-purpose administrator role; elevated access is provisioned for representatives and department officials.
+
+## Run locally
+
+From the repository root:
+>>>>>>> Stashed changes
 
 ```powershell
 cd client
@@ -55,7 +74,22 @@ The production-ready static site is written to `client/dist/`. To preview that b
 5. In Authentication → Providers, enable email/password. Configure email confirmation and a production SMTP sender. Set the password minimum to 12 characters and enable leaked-password protection where your Supabase plan supports it.
 6. Save `client/.env.local`, restart Vite if it was already running, then test registration and email delivery.
 
+<<<<<<< Updated upstream
 The migration `20261117000002_workflow_audit_and_private_media.sql` creates private media buckets and additional role-scoped policies/views. The old `supabase/storage_setup.sql` is retained only as a legacy reference; do not run it because it configures public buckets.
+=======
+1. Create a Supabase project. In **Project Settings → API**, copy the Project URL and anon/publishable key into `client/.env.local`.
+2. In the Supabase SQL Editor, apply these files in order:
+   - `supabase/migrations/20261027000001_initial_schema.sql`
+   - `supabase/migrations/20261027000002_rls_hardening_role_assignments.sql`
+   - `supabase/migrations/20261027000003_scope_future_module_policies.sql`
+   - `supabase/migrations/20261111000001_complaint_tracking_and_rep_updates.sql`
+   - `supabase/migrations/20261113000002_complete_jansetu_platform.sql`
+   - Optional: `supabase/seed.sql` for reference departments (the latest platform migration also installs the core set idempotently).
+3. In the SQL Editor, run `supabase/storage_setup.sql` to create storage buckets and access policies for profile avatars and complaint attachments.
+4. In **Authentication → URL Configuration**, set the local Site URL to `http://localhost:5173` and allow redirect URLs `http://localhost:5173/auth/callback` and `http://localhost:5173/reset-password`. Add production URLs when deploying.
+5. In **Authentication → Providers → Email**, enable email/password sign-in. Configure email confirmation and SMTP for the environment you use. The built-in email sender may be rate-limited.
+6. Configure the Supabase password policy to require at least 12 characters, allow passphrases, and enable leaked-password protection where available. The app validates lengths up to 128 characters; Supabase remains the server-side authority.
+>>>>>>> Stashed changes
 
 ## Email confirmation and password reset
 
@@ -79,9 +113,16 @@ Invite collaborators from the Supabase organization/project team settings and gr
 
 Citizens can register through the app. Representative and department accounts must be created or approved by a trusted administrator:
 
+<<<<<<< Updated upstream
 1. Have the person register or create/invite their account in Supabase Auth.
 2. Review `supabase/provision_admin_accounts.sql`; replace example email, jurisdiction, designation, and department values with verified values.
 3. Run the appropriate statements in Supabase SQL Editor, then verify the profile and role assignment before granting access.
+=======
+- `public.profiles.role` and protected profile scope are the authorization inputs. `public.role_assignments` records trusted assignments; browser clients have no write policy for that table.
+- RLS restricts profile reads, complaint reads and workflow updates, announcement creation, and project writes by role and assigned scope. Review the policies in all migrations before deploying to a real service environment.
+- Citizens can read their own profile and complaint records. Representatives are scoped to their assigned constituency. Department officials are scoped to their assigned department.
+- SQL Editor/migration application and Supabase Auth dashboard configuration must be performed by a project administrator.
+>>>>>>> Stashed changes
 
 Selecting a representative or department sign-in page never grants that role. Do not run the provisioning example unchanged.
 
